@@ -6,7 +6,7 @@ Genera datos sintéticos (usuarios + vehículos) y permite guardarlos en:
 CSV, Parquet, JSON (anidado y separado), Avro, SQLite, PostgreSQL y MongoDB.
 
 Uso:
-    python generate_and_store.py --n_users 10000 --seed 42 --out_dir output
+    python generate_and_store.py --n_users 10000 --seed 42 --out_dir output --cp_file codigos_postales_municipios.csv
 
 Requisitos: Faker, pyarrow, fastavro, psycopg2, pymongo, tqdm
 """
@@ -36,6 +36,7 @@ try:
 except Exception:
     pymongo = None
 
+
 # -------------------------
 # Cargar datos de códigos postales desde el CSV
 # -------------------------
@@ -43,12 +44,11 @@ def load_postal_codes(csv_filepath='codigos_postales_municipios.csv'):
     """
     Carga los datos de códigos postales y crea un mapeo:
     - cp_to_municipalities: código postal -> lista de municipios
-    - cp_to_province: código postal -> provincia (a través de los 2 primeros dígitos)
+    - cp_to_province: código postal -> provincia (por los 2 primeros dígitos del CP)
     """
     cp_to_municipalities = {}
-    cp_to_province = {}  # Para cachear la provincia de cada CP
-    
-    # Diccionario de códigos de provincia
+    cp_to_province = {}
+
     CP_TO_PROVINCE = {
         "01": "Álava", "02": "Albacete", "03": "Alicante", "04": "Almería",
         "05": "Ávila", "06": "Badajoz", "07": "Islas Baleares", "08": "Barcelona",
@@ -65,34 +65,30 @@ def load_postal_codes(csv_filepath='codigos_postales_municipios.csv'):
         "48": "Vizcaya", "49": "Zamora", "50": "Zaragoza", "51": "Ceuta",
         "52": "Melilla"
     }
-    
+
     try:
         with open(csv_filepath, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                cp = row['codigo_postal'].zfill(5)  # Asegurar 5 dígitos
-                municipio_nombre = row['municipio_nombre']
+                cp = row['codigo_postal'].zfill(5)
+                municipio_nombre = row['municipio_nombre'].strip()
                 provincia_codigo = cp[:2]
                 provincia_nombre = CP_TO_PROVINCE.get(provincia_codigo, "Desconocida")
-                
-                # Añadir a cp_to_municipalities
-                if cp not in cp_to_municipalities:
-                    cp_to_municipalities[cp] = []
-                cp_to_municipalities[cp].append(municipio_nombre)
-                
-                # Cachear la provincia para este CP
+
+                cp_to_municipalities.setdefault(cp, []).append(municipio_nombre)
                 cp_to_province[cp] = provincia_nombre
-                
+
         print(f"Cargados {len(cp_to_municipalities)} códigos postales únicos")
         return cp_to_municipalities, cp_to_province, CP_TO_PROVINCE
-        
+
     except FileNotFoundError:
-        print(f"Advertencia: No se encontró el archivo {csv_filepath}")
-        print("Usando generación aleatoria de códigos postales")
+        print(f"⚠️ No se encontró el archivo {csv_filepath}, usando fallback aleatorio")
         return {}, {}, CP_TO_PROVINCE
 
-# Cargar los datos al inicio
+
+# Inicializar
 cp_to_municipalities, cp_to_province, CP_TO_PROVINCE = load_postal_codes()
+
 
 # -------------------------
 # Providers personalizados
@@ -100,7 +96,6 @@ cp_to_municipalities, cp_to_province, CP_TO_PROVINCE = load_postal_codes()
 class DNIProvider(BaseProvider):
     __letters = 'TRWAGMYFPDXBNJZSQVHLCKE'
     def dni_number(self) -> int:
-        # 8 dígitos mínimo, evitar 0-prefijos artificiales
         return self.generator.random_int(min=11111111, max=99999999)
     def dni_control_letter(self, num:int) -> str:
         return self.__letters[num % 23]
@@ -109,7 +104,6 @@ class DNIProvider(BaseProvider):
         return f"{n:08d}-{self.dni_control_letter(n)}"
 
 class PlateProvider(BaseProvider):
-    # Generador simple de matrículas españolas modernas (4 dígitos + 3 letras) sin vocales para evitar palabras
     consonants = "BCDFGHJKLMNPQRSTVWXYZ"
     def plate(self) -> str:
         nums = random.randint(0, 9999)
@@ -117,10 +111,10 @@ class PlateProvider(BaseProvider):
         return f"{nums:04d}{letters}"
 
 class VINProvider(BaseProvider):
-    # Generador simple y no criptográfico de número de bastidor (VIN-like 17 chars)
-    chars = "0123456789ABCDEFGHJKLMNPRSTUVWXYZ"  # sin I, O, Q típicamente
+    chars = "0123456789ABCDEFGHJKLMNPRSTUVWXYZ"
     def vin(self) -> str:
         return ''.join(random.choice(self.chars) for _ in range(17))
+
 
 # -------------------------
 # Generadores
@@ -135,66 +129,54 @@ def build_generators(seed=None, locale='es_ES'):
     fake.add_provider(VINProvider)
     return fake
 
-# -------------------------
-# Generador de usuarios coherentes CP–municipio–provincia
-# -------------------------
+
 def generate_users(fake, n):
     users = []
-    
-    # Si tenemos datos de códigos postales, usarlos
+
     if cp_to_municipalities:
         valid_cps = list(cp_to_municipalities.keys())
-        
-        for _ in tqdm(range(n), desc="Generando usuarios con CPs reales"):
+        for _ in tqdm(range(n), desc="Generando usuarios coherentes"):
             dni = fake.unique.dni()
             phone_mobile = fake.unique.phone_number()
-            
-            # Elegir un código postal real
+
             cp = random.choice(valid_cps)
-            
-            # Elegir un municipio para este CP
             municipio = random.choice(cp_to_municipalities[cp])
-            
-            # Obtener la provincia
             provincia = cp_to_province[cp]
-            
-            user = {
+
+            users.append({
                 "Name": fake.name(),
                 "DNI": dni,
                 "Email": fake.ascii_company_email(),
                 "PhoneMobile": phone_mobile,
                 "PhoneLandline": fake.phone_number(),
                 "Address": fake.street_address(),
-                "City": municipio,  # Usar el municipio real
+                "City": municipio,
                 "PostalCode": cp,
-                "Province": provincia  # Usar la provincia real
-            }
-            users.append(user)
+                "Province": provincia
+            })
     else:
-        # Fallback: generación aleatoria (como antes)
-        for _ in tqdm(range(n), desc="Generando usuarios con CPs aleatorios"):
+        for _ in tqdm(range(n), desc="Generando usuarios aleatorios (sin CSV)"):
             dni = fake.unique.dni()
             phone_mobile = fake.unique.phone_number()
-
-            # Generar código postal válido (5 dígitos entre 01000 y 52999)
             cp_num = random.randint(1000, 52999)
             cp = f"{cp_num:05d}"
             prov = CP_TO_PROVINCE.get(cp[:2], "Desconocida")
+            municipio = f"Municipio-{cp}"
 
-            user = {
+            users.append({
                 "Name": fake.name(),
                 "DNI": dni,
                 "Email": fake.ascii_company_email(),
                 "PhoneMobile": phone_mobile,
                 "PhoneLandline": fake.phone_number(),
                 "Address": fake.street_address(),
-                "City": fake.city(),
+                "City": municipio,
                 "PostalCode": cp,
                 "Province": prov
-            }
-            users.append(user)
-            
+            })
+
     return users
+
 
 VEHICLE_CATEGORIES = [
     "urbano", "sedán", "berlina", "cupé", "descapotable", "deportivo", 
@@ -202,12 +184,9 @@ VEHICLE_CATEGORIES = [
 ]
 
 def generate_vehicles(fake, users, vehicles_per_user_avg=1.2):
-    # users: lista de dicts con campo "DNI"
     vehicles = []
     n_users = len(users)
-    # Convertir lista de DNIs
     dnis = [u["DNI"] for u in users]
-    # generamos un número total de vehículos cercano a n_users * vehicles_per_user_avg
     expected_total = int(n_users * vehicles_per_user_avg)
     
     for _ in tqdm(range(expected_total), desc="Generando vehículos"):
@@ -225,10 +204,11 @@ def generate_vehicles(fake, users, vehicles_per_user_avg=1.2):
         
     return vehicles
 
-# ... (el resto del código se mantiene igual: funciones de escritura, esquemas Avro, etc.)
 
+# -------------------------
+# Escritura en ficheros
+# -------------------------
 def write_csv(data, filepath):
-    import csv
     if not data:
         return
     with open(filepath, 'w', newline='', encoding='utf-8') as f:
@@ -238,7 +218,6 @@ def write_csv(data, filepath):
             writer.writerow([row.get(k, "") for k in row.keys()])
 
 def write_parquet(data, filepath, schema=None):
-    # data: lista de dicts
     table = pa.Table.from_pylist(data, schema=schema)
     pq.write_table(table, filepath, compression='snappy')
 
@@ -247,7 +226,6 @@ def write_json_separate(data, filepath):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 def write_json_nested(users, vehicles, filepath):
-    # crear map dni->vehicles
     dni_map = {}
     for v in vehicles:
         dni_map.setdefault(v["OwnerDNI"], []).append(v)
@@ -260,9 +238,9 @@ def write_json_nested(users, vehicles, filepath):
         json.dump(nested, f, ensure_ascii=False, indent=2)
 
 def write_avro(data, schema, filepath):
-    # data: list of dicts, schema: fastavro-compatible schema dict
     with open(filepath, 'wb') as out:
         fastavro.writer(out, schema, data)
+
 
 # -------------------------
 # SGBD: SQLite, PostgreSQL, MongoDB
@@ -338,6 +316,7 @@ def write_mongo(users, vehicles, dbname='fake_db', host='mongodb://localhost:270
         db.vehicles.insert_many(vehicles)
     client.close()
 
+
 # -------------------------
 # Avro esquemas
 # -------------------------
@@ -373,6 +352,7 @@ def avro_schema_vehicles():
         ]
     }
 
+
 # -------------------------
 # CLI y flujo principal
 # -------------------------
@@ -386,7 +366,6 @@ def main():
     parser.add_argument("--mongo_uri", type=str, default="mongodb://localhost:27017/")
     args = parser.parse_args()
 
-    # Recargar datos de códigos postales con el archivo especificado
     global cp_to_municipalities, cp_to_province, CP_TO_PROVINCE
     cp_to_municipalities, cp_to_province, CP_TO_PROVINCE = load_postal_codes(args.cp_file)
 
@@ -396,13 +375,14 @@ def main():
     users = generate_users(fake, args.n_users)
     vehicles = generate_vehicles(fake, users, vehicles_per_user_avg=1.3)
 
-    # Ficheros separados: CSV y Parquet
+    # CSV
     users_csv = os.path.join(args.out_dir, "users.csv")
     vehicles_csv = os.path.join(args.out_dir, "vehicles.csv")
     write_csv(users, users_csv)
     write_csv(vehicles, vehicles_csv)
     print(f"Wrote CSV to {users_csv}, {vehicles_csv}")
 
+    # Parquet
     users_parquet = os.path.join(args.out_dir, "users.parquet")
     vehicles_parquet = os.path.join(args.out_dir, "vehicles.parquet")
     write_parquet(users, users_parquet)
@@ -445,6 +425,7 @@ def main():
         print("Wrote data to MongoDB (if servidor disponible).")
     except Exception as e:
         print("Error escribiendo en MongoDB:", e)
+
 
 if __name__ == "__main__":
     main()
