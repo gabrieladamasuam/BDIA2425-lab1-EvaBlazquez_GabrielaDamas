@@ -6,6 +6,12 @@ from faker.providers import BaseProvider
 from tqdm import tqdm
 import random
 import unicodedata
+try:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+except Exception:
+    pa = None
+    pq = None
 
 # Cargar datos de códigos postales y prefijos de teléfono
 def load_postal_and_phone(csv_cp='codigos_postales_municipios.csv', csv_tlf='prov_tlf.csv'):
@@ -310,6 +316,15 @@ def write_csv(data, filepath):
         for row in data:
             writer.writerow([row.get(k, "") for k in row.keys()])
 
+def write_parquet(data, filepath):
+    if not data:
+        return
+    if pa is None or pq is None:
+        print(f"pyarrow no está instalado. Omitiendo Parquet: {filepath}")
+        return
+    table = pa.Table.from_pylist(data)
+    pq.write_table(table, filepath, compression='snappy')
+
 # CLI principal
 def main():
     parser = argparse.ArgumentParser()
@@ -333,6 +348,14 @@ def main():
     write_csv(users, users_csv)
     write_csv(vehicles, vehicles_csv)
     print(f"Wrote CSV to {users_csv} y {vehicles_csv}")
+
+    # Parquet
+    users_parquet = os.path.join(args.out_dir, "users.parquet")
+    vehicles_parquet = os.path.join(args.out_dir, "vehicles.parquet")
+    write_parquet(users, users_parquet)
+    write_parquet(vehicles, vehicles_parquet)
+    if pa is not None and pq is not None:
+        print(f"Wrote Parquet to {users_parquet} y {vehicles_parquet}")
 
 if __name__ == "__main__":
     main()
