@@ -6,6 +6,8 @@ from faker.providers import BaseProvider
 from tqdm import tqdm
 import random
 import unicodedata
+import sqlite3
+import sys
 try:
     import pyarrow as pa
     import pyarrow.parquet as pq
@@ -13,39 +15,54 @@ except Exception:
     pa = None
     pq = None
 
+# ===================== Funciones auxiliares =====================
+
+def load_plate_series(csv_series: str):
+    """Carga series de matrículas por año desde un CSV (columnas: year, series)."""
+    if not os.path.exists(csv_series):
+        raise FileNotFoundError(f"No se encontró el archivo requerido: {csv_series}")
+    series_by_year = {}
+    with open(csv_series, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            y = int(row['year'])
+            s = row['series'].strip()
+            series_by_year.setdefault(y, []).append(s)
+    return series_by_year
+
 # Cargar datos de códigos postales y prefijos de teléfono
 def load_postal_and_phone(csv_cp='codigos_postales_municipios.csv', csv_tlf='prov_tlf.csv'):
     cp_to_municipalities = {}
     prov_to_tlf = {}
     prov_code_to_name = {}
+    # Validar existencia de ficheros requeridos
+    if not os.path.exists(csv_cp):
+        raise FileNotFoundError(f"No se encontró el archivo requerido: {csv_cp}")
+    if not os.path.exists(csv_tlf):
+        raise FileNotFoundError(f"No se encontró el archivo requerido: {csv_tlf}")
+
     # Cargar códigos postales y municipios
-    try:
-        with open(csv_cp, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                cp = row['codigo_postal'].zfill(5)
-                municipio = row['municipio_nombre'].strip()
-                cp_to_municipalities.setdefault(cp, []).append(municipio)
-        print(f"Cargados {len(cp_to_municipalities)} códigos postales únicos")
-    except FileNotFoundError:
-        print(f"No se encontró el archivo {csv_cp}, usando fallback aleatorio")
-        cp_to_municipalities = {}
+    with open(csv_cp, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            cp = row['codigo_postal'].zfill(5)
+            municipio = row['municipio_nombre'].strip()
+            cp_to_municipalities.setdefault(cp, []).append(municipio)
+    print(f"Cargados {len(cp_to_municipalities)} códigos postales únicos")
+
     # Cargar prefijos de teléfono por provincia (indexados por código CP inicial)
-    try:
-        with open(csv_tlf, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                prov_cp = row['postal_code'].zfill(2)   # columna con prefijo CP
-                prov_name = row['name'].strip()         # nombre de provincia
-                phone_code = row['phone_code'].strip()  # prefijo de teléfono
-                prov_to_tlf[prov_cp] = phone_code
-                prov_code_to_name[prov_cp] = prov_name
-    except FileNotFoundError:
-        print(f"No se encontró el archivo {csv_tlf}, usando fallback aleatorio")
-        prov_to_tlf = {}
-        prov_code_to_name = {}
+    with open(csv_tlf, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            prov_cp = row['postal_code'].zfill(2)   # columna con prefijo CP
+            prov_name = row['name'].strip()         # nombre de provincia
+            phone_code = row['phone_code'].strip()  # prefijo de teléfono
+            prov_to_tlf[prov_cp] = phone_code
+            prov_code_to_name[prov_cp] = prov_name
 
     return cp_to_municipalities, prov_to_tlf, prov_code_to_name
+
+# ===================== Providers =====================
 
 # Provider de DNI
 class DNIProvider(BaseProvider):
@@ -58,41 +75,17 @@ class DNIProvider(BaseProvider):
         n = self.dni_number()
         return f"{n:08d}-{self.dni_control_letter(n)}"
 
-###################################################################################
-SERIES_MATRICULAS = {
-    2000: ["BBJ","BCD","BCY","BDR"],
-    2001: ["BFJ","BGF","BHG","BJC","BKB","BLC","BMF","BMW","BNL","BPG","BRB","BRT"],
-    2002: ["BSL","BTF","BTZ","BVW","BWT","BXP","BYP","BZF","BZV","CBP","CCH","CDC"],
-    2003: ["CDV","CFM","CGJ","CHF","CJC","CKB","CLD","CLV","CMM","CNK","CPF","CRC"],
-    2004: ["CRV","CSS","CTT","CVR","CWR","CXT","CYY","CZP","DBJ","DCH","DDG","DFF"],
-    2005: ["DFZ","DGX","DHZ","DKB","DLD","DMJ","DNP","DPK","DRG","DSC","DTB","DVB"],
-    2006: ["DVW","DWT","DXZ","DYY","FBC","FCJ","FDP","FFK","FGF","FHD","FJD","FKC"],
-    2007: ["FKY","FLV","FNB","FNZ","FRC","FSJ","FTP","FVJ","FWC","FXB","FXY","FYY"],
-    2008: ["FZR","GBN","GCK","GDH","GFC","GFY","GGV","GHG","GHT","GJJ","GJV","GKH"],
-    2009: ["GKS","GLC","GLP","GMC","GMN","GNF","GNY","GPJ","GPW","GRM","GSC","GSR"],
-    2010: ["GTC","GTS","GVM","GWC","GWV","GXP","GYD","GYM","GYX","GZJ","GZT","HBG"],
-    2011: ["HBP","HCB","HCR","HDC","HDR","HFF","HFT","HGC","HGM","HGX","HHH","HHT"],
-    2012: ["HJC","HJM","HKB","HKL","HKX","HLK","HLW","HMD","HML","HMT","HNC","HNK"],
-    2013: ["HNT","HPC","HPN","HPY","HRK","HRX","HSK","HSR","HSZ","HTK","HTV","HVF"],
-    2014: ["HVN","HVZ","HWM","HWY","HXN","HYD","HYT","HZB","HZL","HZZ","JBL","JBY"],
-    2015: ["JCK","JCY","JDR","JFG","JFX","JGR","JHJ","JHT","JJH","JJW","JKK","JKZ"],
-    2016: ["JLN","JMF","JMY","JNR","JPK","JRG","JRZ","JSL","JTB","JTR","JVH","JVZ"],
-    2017: ["JWN","JXF","JYB","JYT","JZP","KBM","KCH","KCV","KDK","KFC","KFW","KGN"],
-    2018: ["KHG","KHY","KJV","KKR","KLN","KMM","KNK","KPD","KPS","KRJ","KRZ","KSS"],
-    2019: ["KTJ","KVB","KVX","KWT","KXR","KYN","KZK","KZY","LBN","LCG","LCY","LDR"],
-    2020: ["LFH","LFY","LGG","LGH","LGP","LHG","LJD","LJR","LKF","LKV","LLJ","LMC"],
-    2021: ["LML","LMX","LNN","LPD","LPW","LRP","LSG","LSR","LTD","LTP","LVD","LVV"],
-    2022: ["LWD","LWR","LXD","LXS","LYJ","LYZ","LZP","LZZ","MBN","MCB","MCR","MDF"],
-    2023: ["MDS","MFG","MFZ","MGN","MHG","MJB","MJR","MKD","MKR","MLH","MLY","MMN"],
-    2024: ["MNC","MNT","MPL","MRD","MRX","MSS","MTK","MTW","MVL","MWD","MWV","MXP"],
-    2025: ["MYF","MYW","MZS","NBL","NCJ","NDG","NFC","NFR","NGB"],
-}
-
 class PlateProvider(BaseProvider):
+    def __init__(self, generator, series_by_year):
+        super().__init__(generator)
+        self.series_by_year = series_by_year
+        self.min_year = min(series_by_year.keys()) if series_by_year else 2000
+        self.max_year = max(series_by_year.keys()) if series_by_year else 2025
+
     def plate(self, year: int = None) -> str:
         if year is None:
-            year = random.randint(2000, 2025)
-        series = SERIES_MATRICULAS.get(year, ["ZZZ"])
+            year = random.randint(self.min_year, self.max_year)
+        series = self.series_by_year.get(year, ["ZZZ"])
         letters = random.choice(series)
         nums = random.randint(0, 9999)
         return f"{nums:04d}{letters}"
@@ -114,12 +107,9 @@ class VINProvider(BaseProvider):
     chars = "0123456789ABCDEFGHJKLMNPRSTUVWXYZ"  # sin I, O, Q
 
     year_codes = {
-        2000: "Y", 2001: "1", 2002: "2", 2003: "3", 2004: "4",
-        2005: "5", 2006: "6", 2007: "7", 2008: "8", 2009: "9",
-        2010: "A", 2011: "B", 2012: "C", 2013: "D", 2014: "E",
-        2015: "F", 2016: "G", 2017: "H", 2018: "J", 2019: "K",
-        2020: "L", 2021: "M", 2022: "N", 2023: "P", 2024: "R",
-        2025: "S"
+        2000: "Y", 2001: "1", 2002: "2", 2003: "3", 2004: "4", 2005: "5", 2006: "6", 2007: "7", 2008: "8", 
+        2009: "9", 2010: "A", 2011: "B", 2012: "C", 2013: "D", 2014: "E", 2015: "F", 2016: "G", 2017: "H", 
+        2018: "J", 2019: "K", 2020: "L", 2021: "M", 2022: "N", 2023: "P", 2024: "R", 2025: "S"
     }
 
     transl = {
@@ -162,16 +152,19 @@ class VINProvider(BaseProvider):
         return "X" if remainder == 10 else str(remainder)
     
 
-############################################################################### Generadores
+# ===================== Generadores =====================
 
-def build_generators(seed=None, locale='es_ES'):
+def build_generators(seed=None, locale='es_ES', series_csv_path=None):
     fake = Faker(locale)
     if seed is not None:
         Faker.seed(seed)
         random.seed(seed)
     fake.add_provider(DNIProvider)
-    # Añadimos proveedores de matrícula y VIN para generar vehículos desde pruebas.py
-    fake.add_provider(PlateProvider)
+    # Añadimos proveedores de matrícula y VIN (series cargadas desde CSV)
+    if series_csv_path is None:
+        raise ValueError("Debe proporcionarse la ruta al CSV de series de matrículas")
+    series_by_year = load_plate_series(series_csv_path)
+    fake.add_provider(PlateProvider, series_by_year)
     fake.add_provider(VINProvider)
     return fake
 
@@ -182,86 +175,67 @@ def generate_users(fake, cp_to_municipalities, prov_to_tlf, prov_code_to_name, n
     emails_generados = set()
     landlines_generados = set()
 
-    if cp_to_municipalities:
-        valid_cps = list(cp_to_municipalities.keys())
+    if not cp_to_municipalities:
+        raise RuntimeError("No se cargaron códigos postales desde el CSV. Comprueba la ruta de datos.")
 
-        for _ in tqdm(range(n), desc="Generando usuarios coherentes"):
-            dni = fake.unique.dni()
-            # Teléfono móvil
-            prefijo_movil = str(random.choice([6, 7]))
-            phone_mobile = prefijo_movil + ''.join(str(random.randint(0, 9)) for _ in range(8))
+    valid_cps = list(cp_to_municipalities.keys())
 
-            # Selección de ciudad y provincia
-            cp = random.choice(valid_cps)
-            municipio = random.choice(cp_to_municipalities[cp])
-            prov_code = cp[:2]
-            provincia = prov_code_to_name.get(prov_code, "Desconocida")
+    for _ in tqdm(range(n), desc="Generando usuarios coherentes"):
+        dni = fake.unique.dni()
+        # Teléfono móvil
+        prefijo_movil = str(random.choice([6, 7]))
+        phone_mobile = prefijo_movil + ''.join(str(random.randint(0, 9)) for _ in range(8))
 
-            # Teléfono fijo: usar prefijo de provincia si existe
-            phone_landline = ""
-            if prov_code in prov_to_tlf:
-                prov_prefijo = prov_to_tlf[prov_code]
-                candidate = prov_prefijo + ''.join(str(random.randint(0, 9)) for _ in range(7))
+        # Selección de ciudad y provincia
+        cp = random.choice(valid_cps)
+        municipio = random.choice(cp_to_municipalities[cp])
+        prov_code = cp[:2]
+        provincia = prov_code_to_name.get(prov_code, "Desconocida")
 
-                if random.random() < landline_prob and candidate not in landlines_generados:
-                    phone_landline = candidate
-                    landlines_generados.add(candidate)
+        # Teléfono fijo: usar prefijo de provincia si existe
+        phone_landline = ""
+        if prov_code in prov_to_tlf:
+            prov_prefijo = prov_to_tlf[prov_code]
+            candidate = prov_prefijo + ''.join(str(random.randint(0, 9)) for _ in range(7))
 
-            # Nombre y email
-            nombre = fake.name()
-            def normaliza_email(s):
-                s = s.lower()
-                s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
-                s = s.replace(' ', '').replace('.', '').replace('-', '')
-                return s
+            if random.random() < landline_prob and candidate not in landlines_generados:
+                phone_landline = candidate
+                landlines_generados.add(candidate)
 
-            partes = nombre.split()
-            nombre_email = normaliza_email(partes[0])
-            apellidos_email = normaliza_email(''.join(partes[1:])) if len(partes) > 1 else ''
-            dominio = fake.free_email_domain()
-            email_base = f"{nombre_email}{apellidos_email}@{dominio}"
+        # Nombre y email
+        nombre = fake.name()
+        def normaliza_email(s):
+            s = s.lower()
+            s = ''.join(c for c in unicodedata.normalize('NFD', s) if unicodedata.category(c) != 'Mn')
+            s = s.replace(' ', '').replace('.', '').replace('-', '')
+            return s
 
-            # Evitar emails duplicados
-            email = email_base
-            contador = 1
-            while email in emails_generados:
-                email = f"{nombre_email}{apellidos_email}{contador}@{dominio}"
-                contador += 1
-            emails_generados.add(email)
+        partes = nombre.split()
+        nombre_email = normaliza_email(partes[0])
+        apellidos_email = normaliza_email(''.join(partes[1:])) if len(partes) > 1 else ''
+        dominio = fake.free_email_domain()
+        email_base = f"{nombre_email}{apellidos_email}@{dominio}"
 
-            # Agregar usuario
-            users.append({
-                "Name": nombre,
-                "DNI": dni,
-                "Email": email,
-                "PhoneMobile": phone_mobile,
-                "PhoneLandline": phone_landline,
-                "Address": fake.street_address(),
-                "City": municipio,
-                "PostalCode": cp,
-                "Province": provincia
-            })
-    else:
-        # Fallback si no hay CSV
-        for _ in tqdm(range(n), desc="Generando usuarios aleatorios (sin CSV)"):
-            dni = fake.unique.dni()
-            phone_mobile = fake.unique.phone_number()
-            cp = f"{random.randint(1000, 52999):05d}"
-            municipio = f"Municipio-{cp}"
+        # Evitar emails duplicados
+        email = email_base
+        contador = 1
+        while email in emails_generados:
+            email = f"{nombre_email}{apellidos_email}{contador}@{dominio}"
+            contador += 1
+        emails_generados.add(email)
 
-            phone_landline = fake.phone_number() if random.random() < landline_prob else ""
-
-            users.append({
-                "Name": fake.name(),
-                "DNI": dni,
-                "Email": fake.ascii_company_email(),
-                "PhoneMobile": phone_mobile,
-                "PhoneLandline": phone_landline,
-                "Address": fake.street_address(),
-                "City": municipio,
-                "PostalCode": cp,
-                "Province": "Desconocida"
-            })
+        # Agregar usuario
+        users.append({
+            "Name": nombre,
+            "DNI": dni,
+            "Email": email,
+            "PhoneMobile": phone_mobile,
+            "PhoneLandline": phone_landline,
+            "Address": fake.street_address(),
+            "City": municipio,
+            "PostalCode": cp,
+            "Province": provincia
+        })
     return users
 
 VEHICLE_CATEGORIES = [
@@ -306,7 +280,7 @@ def generate_vehicles(fake, users, vehicles_per_user_avg=1.2):
 
     return vehicles
 
-# Escritura CSV
+# ===================== Ficheros =====================
 def write_csv(data, filepath):
     if not data:
         return
@@ -324,38 +298,87 @@ def write_parquet(data, filepath):
         return
     table = pa.Table.from_pylist(data)
     pq.write_table(table, filepath, compression='snappy')
+    
+# ===================== SGBD =====================
+def write_sqlite(users, vehicles, dbfile):
+    con = sqlite3.connect(dbfile)
+    try:
+        cur = con.cursor()
+        # Asegurar integridad referencial en SQLite
+        cur.execute("PRAGMA foreign_keys = ON;")
+        cur.execute("DROP TABLE IF EXISTS vehicles")
+        cur.execute("DROP TABLE IF EXISTS users")
+        cur.execute("""CREATE TABLE users (
+                        Name TEXT, DNI TEXT PRIMARY KEY, Email TEXT,
+                        PhoneMobile TEXT, PhoneLandline TEXT, Address TEXT,
+                        City TEXT, PostalCode TEXT, Province TEXT
+                       )""")
+        cur.execute("""CREATE TABLE vehicles (
+                        Plate TEXT PRIMARY KEY, VIN TEXT, Year INTEGER,
+                        Make TEXT, Model TEXT, Category TEXT, OwnerDNI TEXT,
+                        FOREIGN KEY (OwnerDNI) REFERENCES users(DNI)
+                       )""")
+        if users:
+            usr_rows = [(u['Name'], u['DNI'], u['Email'], u['PhoneMobile'], u['PhoneLandline'],
+                         u['Address'], u['City'], u['PostalCode'], u['Province']) for u in users]
+            cur.executemany("INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?)", usr_rows)
+        if vehicles:
+            veh_rows = [(v['Plate'], v['VIN'], v['Year'], v['Make'], v['Model'], v['Category'], v['OwnerDNI']) for v in vehicles]
+            cur.executemany("INSERT INTO vehicles VALUES (?,?,?,?,?,?,?)", veh_rows)
+        con.commit()
+    finally:
+        con.close()
 
-# CLI principal
+# ===================== Main =====================
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_users", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--data_dir", type=str, default="../data")
-    parser.add_argument("--out_dir", type=str, default="../output")
+    parser.add_argument("--data_dir", type=str, default="data")
+    parser.add_argument("--out_dir", type=str, default="output")
+    parser.add_argument("--plate_series_csv", type=str, default="data/series_matriculas.csv", help="Ruta al CSV con series de matrículas por año")
     args = parser.parse_args()
 
-    cp_file = os.path.join(args.data_dir, "codigos_postales_municipios.csv")
-    tlf_file = os.path.join(args.data_dir, "prov_tlf.csv")
-    cp_to_municipalities, prov_to_tlf, prov_code_to_name = load_postal_and_phone(cp_file, tlf_file)
-    os.makedirs(args.out_dir, exist_ok=True)
+    # Resolver rutas relativas respecto a la raíz del repo (carpeta padre de src)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    repo_root = os.path.dirname(script_dir)
+    data_dir = args.data_dir if os.path.isabs(args.data_dir) else os.path.join(repo_root, args.data_dir)
+    out_dir = args.out_dir if os.path.isabs(args.out_dir) else os.path.join(repo_root, args.out_dir)
 
-    fake = build_generators(seed=args.seed)
+    cp_file = os.path.join(data_dir, "codigos_postales_municipios.csv")
+    tlf_file = os.path.join(data_dir, "prov_tlf.csv")
+    series_file = args.plate_series_csv if os.path.isabs(args.plate_series_csv) else os.path.join(repo_root, args.plate_series_csv)
+    # Validar ficheros de datos requeridos y abortar si faltan
+    try:
+        cp_to_municipalities, prov_to_tlf, prov_code_to_name = load_postal_and_phone(cp_file, tlf_file)
+    except FileNotFoundError as e:
+        print(f"ERROR: {e}")
+        print("Indica el directorio correcto con --data_dir (por defecto 'data' en la raíz del proyecto).")
+        sys.exit(1)
+    os.makedirs(out_dir, exist_ok=True)
+
+    fake = build_generators(seed=args.seed, series_csv_path=series_file)
     users = generate_users(fake, cp_to_municipalities, prov_to_tlf, prov_code_to_name, args.n_users)
     vehicles = generate_vehicles(fake, users, vehicles_per_user_avg=1.3)
 
-    users_csv = os.path.join(args.out_dir, "users.csv")
-    vehicles_csv = os.path.join(args.out_dir, "vehicles.csv")
+    users_csv = os.path.join(out_dir, "users.csv")
+    vehicles_csv = os.path.join(out_dir, "vehicles.csv")
     write_csv(users, users_csv)
     write_csv(vehicles, vehicles_csv)
     print(f"Wrote CSV to {users_csv} y {vehicles_csv}")
 
     # Parquet
-    users_parquet = os.path.join(args.out_dir, "users.parquet")
-    vehicles_parquet = os.path.join(args.out_dir, "vehicles.parquet")
+    users_parquet = os.path.join(out_dir, "users.parquet")
+    vehicles_parquet = os.path.join(out_dir, "vehicles.parquet")
     write_parquet(users, users_parquet)
     write_parquet(vehicles, vehicles_parquet)
     if pa is not None and pq is not None:
         print(f"Wrote Parquet to {users_parquet} y {vehicles_parquet}")
+
+    # SQLite
+    sqlite_file = os.path.join(out_dir, "fake_data.sqlite3")
+    write_sqlite(users, vehicles, sqlite_file)
+    print(f"Wrote SQLite DB to {sqlite_file}")
 
 if __name__ == "__main__":
     main()
