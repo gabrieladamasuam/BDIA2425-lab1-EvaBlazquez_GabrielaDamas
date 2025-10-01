@@ -164,6 +164,9 @@ def build_generators(seed=None, locale='es_ES'):
         Faker.seed(seed)
         random.seed(seed)
     fake.add_provider(DNIProvider)
+    # Añadimos proveedores de matrícula y VIN para generar vehículos desde pruebas.py
+    fake.add_provider(PlateProvider)
+    fake.add_provider(VINProvider)
     return fake
 
 
@@ -323,10 +326,13 @@ def main():
 
     fake = build_generators(seed=args.seed)
     users = generate_users(fake, cp_to_municipalities, prov_to_tlf, prov_code_to_name, args.n_users)
+    vehicles = generate_vehicles(fake, users, vehicles_per_user_avg=1.3)
 
     users_csv = os.path.join(args.out_dir, "users.csv")
+    vehicles_csv = os.path.join(args.out_dir, "vehicles.csv")
     write_csv(users, users_csv)
-    print(f"Wrote CSV to {users_csv}")
+    write_csv(vehicles, vehicles_csv)
+    print(f"Wrote CSV to {users_csv} y {vehicles_csv}")
 
 if __name__ == "__main__":
     main()
