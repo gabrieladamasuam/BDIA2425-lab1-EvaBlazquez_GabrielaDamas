@@ -1,7 +1,6 @@
 import os
 import csv
 import json
-import sqlite3
 from typing import Dict, List, Tuple
 
 # pyarrow opcional para Parquet
@@ -21,7 +20,8 @@ except Exception:
 # ===================== Loaders (entrada de datos) =====================
 
 def load_plate_series(csv_series: str) -> Dict[int, List[str]]:
-    """Carga series de matrículas por año desde un CSV (columnas: year, series)."""
+    """Carga series de matrículas por año desde un CSV (columnas: year, series).
+    """
     if not os.path.exists(csv_series):
         raise FileNotFoundError(f"No se encontró el archivo requerido: {csv_series}")
     series_by_year: Dict[int, List[str]] = {}
@@ -35,9 +35,7 @@ def load_plate_series(csv_series: str) -> Dict[int, List[str]]:
 
 
 def load_postal_and_phone(csv_cp: str, csv_tlf: str) -> Tuple[Dict[str, List[str]], Dict[str, str], Dict[str, str]]:
-    """Carga CP->municipios y prefijos de teléfono por provincia.
-    Devuelve: (cp_to_municipalities, prov_to_tlf, prov_code_to_name)
-    Lanza FileNotFoundError si faltan ficheros.
+    """Carga códigos postales, municipios y prefijos de teléfono por provincia.
     """
     if not os.path.exists(csv_cp):
         raise FileNotFoundError(f"No se encontró el archivo requerido: {csv_cp}")
@@ -92,10 +90,10 @@ def write_parquet(data: List[dict], filepath: str) -> None:
 
 
 def write_json_nested(users: List[dict], vehicles: List[dict], filepath: str) -> None:
-    # Agrupar vehículos por DNI del propietario (acepta OwnerDNI o UserDNI)
+    # Agrupar vehículos por DNI del propietario
     veh_by_dni: Dict[str, List[dict]] = {}
     for v in vehicles:
-        key = v.get('OwnerDNI', v.get('UserDNI'))
+        key = v.get('UserDNI')
         if key is not None:
             veh_by_dni.setdefault(key, []).append(v)
 
@@ -123,12 +121,9 @@ def write_avro_nested(users: List[dict], vehicles: List[dict], filepath: str) ->
     if avro_writer is None or parse_schema is None:
         print(f"fastavro no está instalado. Omitiendo AVRO: {filepath}")
         return
-    # Normalizar vehicles para usar siempre 'UserDNI' internamente
     vehicles_norm: List[dict] = []
     for v in vehicles:
         vd = dict(v)
-        if 'OwnerDNI' in vd and 'UserDNI' not in vd:
-            vd['UserDNI'] = vd.pop('OwnerDNI')
         vehicles_norm.append(vd)
 
     veh_by_dni: Dict[str, List[dict]] = {}
@@ -219,56 +214,10 @@ def write_avro_separated(users: List[dict], vehicles: List[dict], users_path: st
     with open(users_path, 'wb') as out:
         avro_writer(out, parse_schema(user_schema), users)
 
-    # Normalizar vehicles a 'UserDNI' si vienen con 'OwnerDNI'
     vehicles_norm: List[dict] = []
     for v in vehicles:
         vd = dict(v)
-        if 'OwnerDNI' in vd and 'UserDNI' not in vd:
-            vd['UserDNI'] = vd.pop('OwnerDNI')
         vehicles_norm.append(vd)
 
     with open(vehicles_path, 'wb') as out:
         avro_writer(out, parse_schema(vehicle_schema), vehicles_norm)
-
-
-def write_sqlite(users: List[dict], vehicles: List[dict], dbfile: str) -> None:
-    os.makedirs(os.path.dirname(dbfile), exist_ok=True)
-    con = sqlite3.connect(dbfile)
-    try:
-        cur = con.cursor()
-        cur.execute("PRAGMA foreign_keys = ON;")
-        cur.execute("DROP TABLE IF EXISTS vehicles")
-        cur.execute("DROP TABLE IF EXISTS users")
-        cur.execute(
-            """CREATE TABLE users (
-                Name TEXT, DNI TEXT PRIMARY KEY, Email TEXT,
-                PhoneMobile TEXT, PhoneLandline TEXT, Address TEXT,
-                City TEXT, PostalCode TEXT, Province TEXT
-            )"""
-        )
-        cur.execute(
-            """CREATE TABLE vehicles (
-                Plate TEXT PRIMARY KEY, VIN TEXT, Year INTEGER,
-                Make TEXT, Model TEXT, Category TEXT, OwnerDNI TEXT,
-                FOREIGN KEY (OwnerDNI) REFERENCES users(DNI)
-            )"""
-        )
-        if users:
-            usr_rows = [
-                (
-                    u['Name'], u['DNI'], u['Email'], u['PhoneMobile'], u['PhoneLandline'],
-                    u['Address'], u['City'], u['PostalCode'], u['Province']
-                ) for u in users
-            ]
-            cur.executemany("INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?)", usr_rows)
-        if vehicles:
-            veh_rows = []
-            for v in vehicles:
-                owner = v.get('OwnerDNI', v.get('UserDNI'))
-                veh_rows.append((
-                    v['Plate'], v['VIN'], v['Year'], v['Make'], v['Model'], v['Category'], owner
-                ))
-            cur.executemany("INSERT INTO vehicles VALUES (?,?,?,?,?,?,?)", veh_rows)
-        con.commit()
-    finally:
-        con.close()

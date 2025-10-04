@@ -1,8 +1,8 @@
 import os
 import argparse
 from generators import build_generators, generate_users, generate_vehicles
-from io_utils import load_postal_and_phone, write_csv, write_parquet, write_json_nested, write_json_separated, write_avro_nested, write_avro_separated, write_sqlite
-from db_utils import create_tables, insert_into_postgres 
+from io_utils import load_postal_and_phone, write_csv, write_parquet, write_json_nested, write_json_separated, write_avro_nested, write_avro_separated
+from db_utils import create_tables, insert_into_postgres, write_sqlite 
 
     
 db_config = {
