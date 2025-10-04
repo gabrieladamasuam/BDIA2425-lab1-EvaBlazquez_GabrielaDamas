@@ -2,20 +2,9 @@ import os
 import csv
 import json
 from typing import Dict, List, Tuple
-
-# pyarrow opcional para Parquet
-try:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-except Exception:
-    pa = None
-    pq = None
-
-try:
-    from fastavro import writer as avro_writer, parse_schema
-except Exception:
-    avro_writer = None
-    parse_schema = None
+import pyarrow as pa
+import pyarrow.parquet as pq
+from fastavro import writer as avro_writer, parse_schema
 
 # ===================== Loaders (entrada de datos) =====================
 

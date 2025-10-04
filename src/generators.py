@@ -4,7 +4,7 @@ from tqdm import tqdm
 import random
 import unicodedata
 import os
-from io_utils import load_plate_series
+from io_utils import load_plate_series, load_postal_and_phone
     
 
 MANUFACTURERS = [
@@ -46,16 +46,31 @@ def build_generators(seed=None, locale='es_ES', series_csv_path=None):
     return fake
 
 
-def generate_users(fake, cp_to_municipalities, prov_to_tlf, prov_code_to_name, n):
+def generate_users(fake, n, data_dir=None, cp_to_municipalities=None, prov_to_tlf=None, prov_code_to_name=None, show_progress: bool = False):
     users = []
     landline_prob = 0.539  # Probabilidad de que la persona tenga teléfono fijo
     emails_generados = set()
     landlines_generados = set()
 
+    # Cargar datos si no se proporcionan
+    if cp_to_municipalities is None or prov_to_tlf is None or prov_code_to_name is None:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        repo_root = os.path.dirname(script_dir)
+        if data_dir is None:
+            base = os.path.join(repo_root, 'data')
+        elif not os.path.isabs(data_dir):
+            base = os.path.join(repo_root, data_dir)
+        else:
+            base = data_dir
+        cp_file = os.path.join(base, 'codigos_postales_municipios.csv')
+        tlf_file = os.path.join(base, 'prov_tlf.csv')
+        cp_to_municipalities, prov_to_tlf, prov_code_to_name = load_postal_and_phone(cp_file, tlf_file)
+
     if cp_to_municipalities:
         valid_cps = list(cp_to_municipalities.keys())
 
-        for _ in tqdm(range(n), desc="Generando usuarios coherentes"):
+    iterator = tqdm(range(n), desc="Generando usuarios") if show_progress else range(n)
+    for _ in iterator:
             dni = fake.unique.dni()
             # Teléfono móvil
             prefijo_movil = str(random.choice([6, 7]))
@@ -67,11 +82,12 @@ def generate_users(fake, cp_to_municipalities, prov_to_tlf, prov_code_to_name, n
             prov_code = cp[:2]
             provincia = prov_code_to_name.get(prov_code, "Desconocida")
 
-            # Teléfono fijo: usar prefijo de provincia si existe
+            # Teléfono fijo: usar prefijo de provincia si existe y completar hasta 9 dígitos
             phone_landline = ""
             if prov_code in prov_to_tlf:
                 prov_prefijo = prov_to_tlf[prov_code]
-                candidate = prov_prefijo + ''.join(str(random.randint(0, 9)) for _ in range(7))
+                restantes = max(0, 9 - len(prov_prefijo))
+                candidate = prov_prefijo + ''.join(str(random.randint(0, 9)) for _ in range(restantes))
 
                 if random.random() < landline_prob and candidate not in landlines_generados:
                     phone_landline = candidate
@@ -112,8 +128,9 @@ def generate_users(fake, cp_to_municipalities, prov_to_tlf, prov_code_to_name, n
                 "Province": provincia
             })
     else:
-        # Fallback si no hay CSV
-        for _ in tqdm(range(n), desc="Generando usuarios aleatorios (sin CSV)"):
+        # Fallback si no hay CSV cargado
+        iterator = tqdm(range(n), desc="Generando usuarios") if show_progress else range(n)
+        for _ in iterator:
             dni = fake.unique.dni()
             phone_mobile = fake.unique.phone_number()
             cp = f"{random.randint(1000, 52999):05d}"
@@ -134,14 +151,15 @@ def generate_users(fake, cp_to_municipalities, prov_to_tlf, prov_code_to_name, n
             })
     return users
 
-def generate_vehicles(fake, users):
+def generate_vehicles(fake, users, show_progress: bool = False):
     vehicles = []
     used_plates = set()
     used_vins = set()
     # Probabilidades: [0 coches, 1 coche, 2 coches, 3 coches]
     probs = [0.15, 0.50, 0.25, 0.10]  
 
-    for user in tqdm(users):
+    iterator_users = tqdm(users, desc="Generando vehículos") if show_progress else users
+    for user in iterator_users:
         n_cars = random.choices([0, 1, 2, 3], weights=probs, k=1)[0]
         for _ in range(n_cars):
             year = random.randint(2000, 2025)

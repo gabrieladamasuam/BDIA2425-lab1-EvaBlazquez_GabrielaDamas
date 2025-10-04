@@ -1,78 +1,10 @@
-import psycopg2
 import os
 import sqlite3
+import psycopg2
+from psycopg2 import sql, errors
+from pymongo import MongoClient
 
-def get_connection(db_config):
-    return psycopg2.connect(
-        dbname=db_config['dbname'],
-        user=db_config['user'],
-        password=db_config['password'],
-        host=db_config['host'],
-        port=db_config['port']
-    )
-
-def create_tables(db_config):
-    conn = get_connection(db_config)
-    cur = conn.cursor()
-    
-    # Tabla usuarios
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        dni VARCHAR(10) PRIMARY KEY,
-        name VARCHAR(100),
-        email VARCHAR(100),
-        phone_mobile VARCHAR(20),
-        phone_landline VARCHAR(20),
-        address TEXT,
-        city VARCHAR(50),
-        postal_code VARCHAR(10),
-        province VARCHAR(50)
-    );
-    """)
-
-    # Tabla vehículos
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS vehicles (
-        plate VARCHAR(10) PRIMARY KEY,
-        vin VARCHAR(20),
-        year INT,
-        make VARCHAR(50),
-        model VARCHAR(50),
-        category VARCHAR(50),
-        user_dni VARCHAR(10) REFERENCES users(dni)
-    );
-    """)
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
-def insert_into_postgres(users, vehicles, db_config):
-    conn = get_connection(db_config)
-    cur = conn.cursor()
-    
-    # Insertar usuarios
-    for u in users:
-        cur.execute("""
-        INSERT INTO users(dni, name, email, phone_mobile, phone_landline, address, city, postal_code, province)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        ON CONFLICT (dni) DO NOTHING;
-        """, (u['DNI'], u['Name'], u['Email'], u['PhoneMobile'], u['PhoneLandline'], u['Address'], u['City'], u['PostalCode'], u['Province']))
-    
-    # Insertar vehículos
-    for v in vehicles:
-        cur.execute("""
-        INSERT INTO vehicles(plate, vin, year, make, model, category, user_dni)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)
-        ON CONFLICT (plate) DO NOTHING;
-        """, (v['Plate'], v['VIN'], v['Year'], v['Make'], v['Model'], v['Category'], v['UserDNI']))
-    
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
+# ============================= SQLite =============================
 def write_sqlite(users, vehicles, dbfile):
     os.makedirs(os.path.dirname(dbfile), exist_ok=True)
     con = sqlite3.connect(dbfile)
@@ -113,3 +45,127 @@ def write_sqlite(users, vehicles, dbfile):
         con.commit()
     finally:
         con.close()
+
+# ============================= PostgreSQL =============================
+def get_connection(db_config):
+    return psycopg2.connect(
+        dbname=db_config['dbname'],
+        user=db_config['user'],
+        password=db_config['password'],
+        host=db_config['host'],
+        port=db_config['port']
+    )
+
+def ensure_database_exists(db_config, admin_db: str = "postgres"):
+    """
+    Garantiza que existe la base de datos indicada en db_config['dbname'].
+    Se conecta a la BD administrativa (por defecto 'postgres') y ejecuta CREATE DATABASE si no existe.
+    Requiere privilegios para crear bases de datos.
+    """
+    # Conectar a la BD administrativa con las mismas credenciales
+    conn = psycopg2.connect(
+        dbname=admin_db,
+        user=db_config['user'],
+        password=db_config['password'],
+        host=db_config['host'],
+        port=db_config['port']
+    )
+    try:
+        # CREATE DATABASE no puede ejecutarse dentro de una transacción
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            try:
+                cur.execute(sql.SQL("CREATE DATABASE {}")
+                            .format(sql.Identifier(db_config['dbname'])))
+            except errors.DuplicateDatabase:
+                # Ya existe, no hacer nada
+                pass
+    finally:
+        conn.close()
+
+def create_tables(db_config):
+    conn = get_connection(db_config)
+    cur = conn.cursor()
+    # Tabla usuarios
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        dni VARCHAR(10) PRIMARY KEY,
+        name VARCHAR(100),
+        email VARCHAR(100),
+        phone_mobile VARCHAR(20),
+        phone_landline VARCHAR(20),
+        address TEXT,
+        city VARCHAR(50),
+        postal_code VARCHAR(10),
+        province VARCHAR(50)
+    );
+    """)
+    # Tabla vehículos
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS vehicles (
+        plate VARCHAR(10) PRIMARY KEY,
+        vin VARCHAR(20),
+        year INT,
+        make VARCHAR(50),
+        model VARCHAR(50),
+        category VARCHAR(50),
+        user_dni VARCHAR(10) REFERENCES users(dni)
+    );
+    """)
+    conn.commit()
+    cur.close()
+    conn.close()
+
+def insert_into_postgres(users, vehicles, db_config):
+    conn = get_connection(db_config)
+    cur = conn.cursor()
+    # Insertar usuarios
+    for u in users:
+        cur.execute("""
+        INSERT INTO users(dni, name, email, phone_mobile, phone_landline, address, city, postal_code, province)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (dni) DO NOTHING;
+        """, (u['DNI'], u['Name'], u['Email'], u['PhoneMobile'], u['PhoneLandline'], u['Address'], u['City'], u['PostalCode'], u['Province']))
+    # Insertar vehículos
+    for v in vehicles:
+        cur.execute("""
+        INSERT INTO vehicles(plate, vin, year, make, model, category, user_dni)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (plate) DO NOTHING;
+        """, (v['Plate'], v['VIN'], v['Year'], v['Make'], v['Model'], v['Category'], v['UserDNI']))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+# ============================= MongoDB =============================
+def get_mongo_client(uri="mongodb://localhost:27017/"):
+    """Conectar a MongoDB y devolver el cliente"""
+    client = MongoClient(uri)
+    return client
+
+def insert_into_mongodb(users, vehicles, db_name="usuarios_vehiculos", uri: str = None):
+    """
+    Inserta usuarios y vehículos en MongoDB.
+    users: lista de diccionarios de usuarios
+    vehicles: lista de diccionarios de vehículos
+    db_name: nombre de la base de datos de MongoDB
+    uri: cadena de conexión a MongoDB (por defecto mongodb://localhost:27017/)
+    """
+    client = get_mongo_client(uri or "mongodb://localhost:27017/")
+    db = client[db_name]
+    
+    # Colecciones
+    users_col = db["users"]
+    vehicles_col = db["vehicles"]
+    
+    # Limpiar colecciones existentes
+    users_col.delete_many({})
+    vehicles_col.delete_many({})
+
+    # Insertar datos
+    users_col.insert_many(users)
+    vehicles_col.insert_many(vehicles)
+
+    client.close()
+    print(f"Insertados {len(users)} usuarios y {len(vehicles)} vehículos en MongoDB ({db_name})")
+

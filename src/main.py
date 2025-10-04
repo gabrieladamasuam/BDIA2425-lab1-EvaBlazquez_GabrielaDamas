@@ -1,17 +1,9 @@
 import os
 import argparse
 from generators import build_generators, generate_users, generate_vehicles
-from io_utils import load_postal_and_phone, write_csv, write_parquet, write_json_nested, write_json_separated, write_avro_nested, write_avro_separated
-from db_utils import create_tables, insert_into_postgres, write_sqlite 
+from io_utils import write_csv, write_parquet, write_json_nested, write_json_separated, write_avro_nested, write_avro_separated
+from db_utils import write_sqlite, create_tables, insert_into_postgres, insert_into_mongodb, ensure_database_exists
 
-    
-db_config = {
-"dbname": "postgres",  
-"user": "postgres",
-"password": "1234",
-"host": "localhost",
-"port": 5432
-}
 
 def main():
     parser = argparse.ArgumentParser()
@@ -19,22 +11,53 @@ def main():
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--data_dir", type=str, default="data")
     parser.add_argument("--out_dir", type=str, default="output")
-    parser.add_argument("--no_postgres", action="store_true", help="No crear/insertar en PostgreSQL")
+
+    # Parámetros opcionales para PostgreSQL (sobrescriben variables de entorno si se proporcionan)
+    parser.add_argument("--pg-dbname", type=str, help="Nombre de la base de datos de PostgreSQL")
+    parser.add_argument("--pg-user", type=str, help="Usuario de PostgreSQL")
+    parser.add_argument("--pg-password", type=str, help="Contraseña de PostgreSQL")
+    parser.add_argument("--pg-host", type=str, help="Host de PostgreSQL")
+    parser.add_argument("--pg-port", type=int, help="Puerto de PostgreSQL")
+    parser.add_argument("--pg-create-db", action="store_true", help="Crear la base de datos destino si no existe (requiere privilegios)")
+    parser.add_argument("--pg-admin-db", type=str, default="postgres", help="Base de datos administrativa para crear la BD destino (por defecto: postgres)")
+
+    # Parámetros opcionales para MongoDB
+    parser.add_argument("--mongo-uri", type=str, help="Cadena de conexión de MongoDB (por defecto MONGO_URI o mongodb://localhost:27017/)")
+    parser.add_argument("--mongo-db", type=str, help="Nombre de la base de datos de MongoDB (por defecto: usuarios_vehiculos)")
     args = parser.parse_args()
 
-    # Resolver rutas relativas respecto a la raíz del repo (carpeta padre de src)
     script_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(script_dir)
     data_dir = args.data_dir if os.path.isabs(args.data_dir) else os.path.join(repo_root, args.data_dir)
     out_dir = args.out_dir if os.path.isabs(args.out_dir) else os.path.join(repo_root, args.out_dir)
-
-    cp_file = os.path.join(data_dir, "codigos_postales_municipios.csv")
-    tlf_file = os.path.join(data_dir, "prov_tlf.csv")
-    cp_to_municipalities, prov_to_tlf, prov_code_to_name = load_postal_and_phone(cp_file, tlf_file)
     os.makedirs(out_dir, exist_ok=True)
 
+    # Configuración de PostgreSQL: variables de entorno con override por flags
+    db_config = {
+        "dbname": os.environ.get("POSTGRES_DB", "usuarios_vehiculos"),
+        "user": os.environ.get("POSTGRES_USER", "postgres"),
+        "password": os.environ.get("POSTGRES_PASSWORD", "1234"),
+        "host": os.environ.get("POSTGRES_HOST", "localhost"),
+        "port": int(os.environ.get("POSTGRES_PORT", "5432")),
+    }
+    if args.pg_dbname: db_config["dbname"] = args.pg_dbname
+    if args.pg_user: db_config["user"] = args.pg_user
+    if args.pg_password: db_config["password"] = args.pg_password
+    if args.pg_host: db_config["host"] = args.pg_host
+    if args.pg_port: db_config["port"] = args.pg_port
+
+    # Resumen de ejecución
+    print(f"Iniciando generación: n_users={args.n_users}, seed={args.seed}, data_dir={data_dir}, out_dir={out_dir}")
+    pg_dest = f"{db_config['host']}:{db_config['port']}/{db_config['dbname']}"
+    print(f"Destino PostgreSQL: {pg_dest}")
+
+    # Configuración MongoDB
+    mongo_uri = args.mongo_uri or os.environ.get("MONGO_URI", "mongodb://localhost:27017/")
+    mongo_db = args.mongo_db or os.environ.get("MONGO_DB", "usuarios_vehiculos")
+    print(f"Destino MongoDB: {mongo_uri} db={mongo_db}")
+
     fake = build_generators(seed=args.seed)
-    users = generate_users(fake, cp_to_municipalities, prov_to_tlf, prov_code_to_name, args.n_users)
+    users = generate_users(fake, args.n_users, data_dir=data_dir)
     vehicles = generate_vehicles(fake, users)
     
     # CSV
@@ -48,7 +71,6 @@ def main():
     vehicles_parquet = os.path.join(out_dir, "vehicles.parquet")
     write_parquet(users, users_parquet)
     write_parquet(vehicles, vehicles_parquet)
-    print(f"Wrote Parquet to {users_parquet}, {vehicles_parquet}")
     
     # JSON
     json_nested_path = os.path.join(out_dir, "users_nested.json")
@@ -68,21 +90,40 @@ def main():
     sqlite_file = os.path.join(out_dir, "fake_data.sqlite3")
     write_sqlite(users, vehicles, sqlite_file)
     
-    if not args.no_postgres:
+    # PostgreSQL
+    postgres_ok = False
+    try:
+        if args.pg_create_db:
+            try:
+                ensure_database_exists(db_config, admin_db=args.pg_admin_db)
+            except Exception as e:
+                print(f"PostgreSQL: no se pudo asegurar la BD '{db_config['dbname']}' (creación opcional): {e}")
         create_tables(db_config)
         insert_into_postgres(users, vehicles, db_config)
+        postgres_ok = True
+    except Exception as e:
+        print(f"PostgreSQL: error al crear/insertar: {e}")
+
+    # MongoDB
+    mongodb_ok = False
+    try:
+        insert_into_mongodb(users, vehicles, db_name=mongo_db, uri=mongo_uri)
+        mongodb_ok = True
+    except Exception as e:
+        print(f"MongoDB: error al insertar: {e}")
     
-    print(f"Wrote CSV to {users_csv} y {vehicles_csv}")
-    print(f"Wrote Parquet to {users_parquet} y {vehicles_parquet}")
-    print(f"Wrote nested JSON to {json_nested_path}")
-    print(f"Wrote users JSON to {users_json_path}")
-    print(f"Wrote vehicles JSON to {vehicles_json_path}")
-    print(f"Wrote nested AVRO to {users_avro_nested}")
-    print(f"Wrote users AVRO to {users_avro_path}")
-    print(f"Wrote vehicles AVRO to {vehicles_avro_path}") 
-    print(f"Wrote SQLite DB to {sqlite_file}")
-    if not args.no_postgres:
-        print("Datos volcados a PostgreSQL correctamente.")
+    print(f"CSVs escritos en {users_csv} y {vehicles_csv}")
+    print(f"Parquets escritos en {users_parquet} y {vehicles_parquet}")
+    print(f"JSON anidado escrito en {json_nested_path}")
+    print(f"JSON de usuarios escrito en {users_json_path}")
+    print(f"JSON de vehículos escrito en {vehicles_json_path}")
+    print(f"AVRO anidado escrito en {users_avro_nested}")
+    print(f"AVRO de usuarios escrito en {users_avro_path}")
+    print(f"AVRO de vehículos escrito en {vehicles_avro_path}") 
+    print(f"BBDD SQLite escrita en {sqlite_file}")
+    print("Datos volcados a PostgreSQL correctamente." if postgres_ok else "Fallo al volcar a PostgreSQL.")
+
+    print("Datos volcados a MongoDB correctamente." if mongodb_ok else "Fallo al volcar a MongoDB.")
     print("Proceso completado.")
 
 if __name__ == "__main__":
