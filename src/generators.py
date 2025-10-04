@@ -4,7 +4,7 @@ from tqdm import tqdm
 import random
 import unicodedata
 import os
-import csv
+from io_utils import load_plate_series
     
 
 MANUFACTURERS = [
@@ -25,54 +25,6 @@ VEHICLE_CATEGORIES = [
     "todoterreno", "monovolumen", "SUV"
 ]
 
-def load_plate_series(csv_series: str):
-    """Carga series de matrículas por año desde un CSV (columnas: year, series)."""
-    if not os.path.exists(csv_series):
-        raise FileNotFoundError(f"No se encontró el archivo requerido: {csv_series}")
-    series_by_year = {}
-    with open(csv_series, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            y = int(row['year'])
-            s = row['series'].strip()
-            series_by_year.setdefault(y, []).append(s)
-    return series_by_year
-
-# Cargar datos de códigos postales y prefijos de teléfono
-def load_postal_and_phone(csv_cp='codigos_postales_municipios.csv', csv_tlf='prov_tlf.csv'):
-    cp_to_municipalities = {}
-    prov_to_tlf = {}
-    prov_code_to_name = {}
-    # Cargar códigos postales y municipios
-    try:
-        with open(csv_cp, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                cp = row['codigo_postal'].zfill(5)
-                municipio = row['municipio_nombre'].strip()
-                cp_to_municipalities.setdefault(cp, []).append(municipio)
-        print(f"Cargados {len(cp_to_municipalities)} códigos postales únicos")
-    except FileNotFoundError:
-        print(f"No se encontró el archivo {csv_cp}, usando fallback aleatorio")
-        cp_to_municipalities = {}
-    # Cargar prefijos de teléfono por provincia (indexados por código CP inicial)
-    try:
-        with open(csv_tlf, 'r', encoding='utf-8') as f:
-            reader = csv.DictReader(f)
-            for row in reader:
-                prov_cp = row['postal_code'].zfill(2)   # columna con prefijo CP
-                prov_name = row['name'].strip()         # nombre de provincia
-                phone_code = row['phone_code'].strip()  # prefijo de teléfono
-                prov_to_tlf[prov_cp] = phone_code
-                prov_code_to_name[prov_cp] = prov_name
-    except FileNotFoundError:
-        print(f"No se encontró el archivo {csv_tlf}, usando fallback aleatorio")
-        prov_to_tlf = {}
-        prov_code_to_name = {}
-
-    return cp_to_municipalities, prov_to_tlf, prov_code_to_name
-
-
 
 def build_generators(seed=None, locale='es_ES', series_csv_path=None):
     fake = Faker(locale)
@@ -87,7 +39,9 @@ def build_generators(seed=None, locale='es_ES', series_csv_path=None):
         repo_root = os.path.dirname(script_dir)
         series_csv_path = os.path.join(repo_root, 'data', 'series_matriculas.csv')
     series_by_year = load_plate_series(series_csv_path)
-    fake.add_provider(PlateProvider, series_by_year)
+    # Inyectar mapping a PlateProvider y registrarlo
+    PlateProvider.series_by_year = series_by_year
+    fake.add_provider(PlateProvider)
     fake.add_provider(VINProvider)
     return fake
 

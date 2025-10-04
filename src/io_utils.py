@@ -1,65 +1,146 @@
+import os
 import csv
-import pyarrow as pa
-import pyarrow.parquet as pq
 import json
-from fastavro import writer, parse_schema
 import sqlite3
+from typing import Dict, List, Tuple
 
-def write_csv(data, filepath):
+# pyarrow opcional para Parquet
+try:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+except Exception:
+    pa = None
+    pq = None
+
+try:
+    from fastavro import writer as avro_writer, parse_schema
+except Exception:
+    avro_writer = None
+    parse_schema = None
+
+# ===================== Loaders (entrada de datos) =====================
+
+def load_plate_series(csv_series: str) -> Dict[int, List[str]]:
+    """Carga series de matrículas por año desde un CSV (columnas: year, series)."""
+    if not os.path.exists(csv_series):
+        raise FileNotFoundError(f"No se encontró el archivo requerido: {csv_series}")
+    series_by_year: Dict[int, List[str]] = {}
+    with open(csv_series, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            y = int(row['year'])
+            s = row['series'].strip()
+            series_by_year.setdefault(y, []).append(s)
+    return series_by_year
+
+
+def load_postal_and_phone(csv_cp: str, csv_tlf: str) -> Tuple[Dict[str, List[str]], Dict[str, str], Dict[str, str]]:
+    """Carga CP->municipios y prefijos de teléfono por provincia.
+    Devuelve: (cp_to_municipalities, prov_to_tlf, prov_code_to_name)
+    Lanza FileNotFoundError si faltan ficheros.
+    """
+    if not os.path.exists(csv_cp):
+        raise FileNotFoundError(f"No se encontró el archivo requerido: {csv_cp}")
+    if not os.path.exists(csv_tlf):
+        raise FileNotFoundError(f"No se encontró el archivo requerido: {csv_tlf}")
+
+    cp_to_municipalities: Dict[str, List[str]] = {}
+    prov_to_tlf: Dict[str, str] = {}
+    prov_code_to_name: Dict[str, str] = {}
+
+    with open(csv_cp, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            cp = row['codigo_postal'].zfill(5)
+            municipio = row['municipio_nombre'].strip()
+            cp_to_municipalities.setdefault(cp, []).append(municipio)
+
+    with open(csv_tlf, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            prov_cp = row['postal_code'].zfill(2)
+            prov_name = row['name'].strip()
+            phone_code = row['phone_code'].strip()
+            prov_to_tlf[prov_cp] = phone_code
+            prov_code_to_name[prov_cp] = prov_name
+
+    return cp_to_municipalities, prov_to_tlf, prov_code_to_name
+
+
+# ===================== Writers (salida de datos) =====================
+
+def write_csv(data: List[dict], filepath: str) -> None:
     if not data:
         return
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
     with open(filepath, 'w', newline='', encoding='utf-8') as f:
-        writer = csv.writer(f)
-        writer.writerow(list(data[0].keys()))
+        w = csv.DictWriter(f, fieldnames=list(data[0].keys()))
+        w.writeheader()
         for row in data:
-            writer.writerow([row.get(k, "") for k in row.keys()])
+            w.writerow(row)
 
-def write_parquet(data, filepath):
+
+def write_parquet(data: List[dict], filepath: str) -> None:
     if not data:
         return
     if pa is None or pq is None:
         print(f"pyarrow no está instalado. Omitiendo Parquet: {filepath}")
         return
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
     table = pa.Table.from_pylist(data)
     pq.write_table(table, filepath, compression='snappy')
 
 
-def write_json_nested(users, vehicles, filepath):
-    veh_by_dni = {}
+def write_json_nested(users: List[dict], vehicles: List[dict], filepath: str) -> None:
+    # Agrupar vehículos por DNI del propietario (acepta OwnerDNI o UserDNI)
+    veh_by_dni: Dict[str, List[dict]] = {}
     for v in vehicles:
-        veh_by_dni.setdefault(v["UserDNI"], []).append(v)
-    # Añadir vehículos a cada usuario
+        key = v.get('OwnerDNI', v.get('UserDNI'))
+        if key is not None:
+            veh_by_dni.setdefault(key, []).append(v)
+
     users_nested = []
     for u in users:
-        u_copy = u.copy()
-        u_copy["Vehicles"] = veh_by_dni.get(u["DNI"], [])
+        u_copy = dict(u)
+        u_copy['Vehicles'] = veh_by_dni.get(u['DNI'], [])
         users_nested.append(u_copy)
-        
-    with open(filepath, "w", encoding="utf-8") as f:
+
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(users_nested, f, ensure_ascii=False, indent=2)
 
-def write_json_separated(users, vehicles, users_path, vehicles_path):
-    with open(users_path, "w", encoding="utf-8") as f:
-        json.dump(users, f, ensure_ascii=False, indent=2)
 
-    with open(vehicles_path, "w", encoding="utf-8") as f:
+def write_json_separated(users: List[dict], vehicles: List[dict], users_path: str, vehicles_path: str) -> None:
+    os.makedirs(os.path.dirname(users_path), exist_ok=True)
+    os.makedirs(os.path.dirname(vehicles_path), exist_ok=True)
+    with open(users_path, 'w', encoding='utf-8') as f:
+        json.dump(users, f, ensure_ascii=False, indent=2)
+    with open(vehicles_path, 'w', encoding='utf-8') as f:
         json.dump(vehicles, f, ensure_ascii=False, indent=2)
 
 
-def write_avro_nested(users, vehicles, filepath):
-    # Preparamos los vehículos agrupados por DNI
-    veh_by_dni = {}
+def write_avro_nested(users: List[dict], vehicles: List[dict], filepath: str) -> None:
+    if avro_writer is None or parse_schema is None:
+        print(f"fastavro no está instalado. Omitiendo AVRO: {filepath}")
+        return
+    # Normalizar vehicles para usar siempre 'UserDNI' internamente
+    vehicles_norm: List[dict] = []
     for v in vehicles:
-        veh_by_dni.setdefault(v["UserDNI"], []).append(v)
+        vd = dict(v)
+        if 'OwnerDNI' in vd and 'UserDNI' not in vd:
+            vd['UserDNI'] = vd.pop('OwnerDNI')
+        vehicles_norm.append(vd)
 
-    # Creamos los usuarios anidados
+    veh_by_dni: Dict[str, List[dict]] = {}
+    for v in vehicles_norm:
+        veh_by_dni.setdefault(v['UserDNI'], []).append(v)
+
     users_nested = []
     for u in users:
-        u_copy = u.copy()
-        u_copy["Vehicles"] = veh_by_dni.get(u["DNI"], [])
+        u_copy = dict(u)
+        u_copy['Vehicles'] = veh_by_dni.get(u['DNI'], [])
         users_nested.append(u_copy)
 
-    # Definir esquema Avro (anidado)
     schema = {
         "type": "record",
         "name": "User",
@@ -73,7 +154,7 @@ def write_avro_nested(users, vehicles, filepath):
             {"name": "City", "type": "string"},
             {"name": "PostalCode", "type": "string"},
             {"name": "Province", "type": "string"},
-            {"name": "Vehicles", 
+            {"name": "Vehicles",
              "type": {
                  "type": "array",
                  "items": {
@@ -94,12 +175,15 @@ def write_avro_nested(users, vehicles, filepath):
         ]
     }
 
-    parsed_schema = parse_schema(schema)
-    with open(filepath, "wb") as out:
-        writer(out, parsed_schema, users_nested)
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    with open(filepath, 'wb') as out:
+        avro_writer(out, parse_schema(schema), users_nested)
 
 
-def write_avro_separated(users, vehicles, users_path, vehicles_path):
+def write_avro_separated(users: List[dict], vehicles: List[dict], users_path: str, vehicles_path: str) -> None:
+    if avro_writer is None or parse_schema is None:
+        print(f"fastavro no está instalado. Omitiendo AVRO: {users_path}, {vehicles_path}")
+        return
     user_schema = {
         "type": "record",
         "name": "User",
@@ -126,41 +210,64 @@ def write_avro_separated(users, vehicles, users_path, vehicles_path):
             {"name": "Make", "type": "string"},
             {"name": "Model", "type": "string"},
             {"name": "Category", "type": "string"},
-            {"name": "UserDNI", "type": "string"}  
+            {"name": "UserDNI", "type": "string"}
         ]
     }
 
-    with open(users_path, "wb") as out:
-        writer(out, parse_schema(user_schema), users)
+    os.makedirs(os.path.dirname(users_path), exist_ok=True)
+    os.makedirs(os.path.dirname(vehicles_path), exist_ok=True)
+    with open(users_path, 'wb') as out:
+        avro_writer(out, parse_schema(user_schema), users)
 
-    with open(vehicles_path, "wb") as out:
-        writer(out, parse_schema(vehicle_schema), vehicles)
+    # Normalizar vehicles a 'UserDNI' si vienen con 'OwnerDNI'
+    vehicles_norm: List[dict] = []
+    for v in vehicles:
+        vd = dict(v)
+        if 'OwnerDNI' in vd and 'UserDNI' not in vd:
+            vd['UserDNI'] = vd.pop('OwnerDNI')
+        vehicles_norm.append(vd)
+
+    with open(vehicles_path, 'wb') as out:
+        avro_writer(out, parse_schema(vehicle_schema), vehicles_norm)
 
 
-def write_sqlite(users, vehicles, dbfile):
+def write_sqlite(users: List[dict], vehicles: List[dict], dbfile: str) -> None:
+    os.makedirs(os.path.dirname(dbfile), exist_ok=True)
     con = sqlite3.connect(dbfile)
     try:
         cur = con.cursor()
-        # Asegurar integridad referencial en SQLite
         cur.execute("PRAGMA foreign_keys = ON;")
         cur.execute("DROP TABLE IF EXISTS vehicles")
         cur.execute("DROP TABLE IF EXISTS users")
-        cur.execute("""CREATE TABLE users (
-                        Name TEXT, DNI TEXT PRIMARY KEY, Email TEXT,
-                        PhoneMobile TEXT, PhoneLandline TEXT, Address TEXT,
-                        City TEXT, PostalCode TEXT, Province TEXT
-                       )""")
-        cur.execute("""CREATE TABLE vehicles (
-                        Plate TEXT PRIMARY KEY, VIN TEXT, Year INTEGER,
-                        Make TEXT, Model TEXT, Category TEXT, OwnerDNI TEXT,
-                        FOREIGN KEY (OwnerDNI) REFERENCES users(DNI)
-                       )""")
+        cur.execute(
+            """CREATE TABLE users (
+                Name TEXT, DNI TEXT PRIMARY KEY, Email TEXT,
+                PhoneMobile TEXT, PhoneLandline TEXT, Address TEXT,
+                City TEXT, PostalCode TEXT, Province TEXT
+            )"""
+        )
+        cur.execute(
+            """CREATE TABLE vehicles (
+                Plate TEXT PRIMARY KEY, VIN TEXT, Year INTEGER,
+                Make TEXT, Model TEXT, Category TEXT, OwnerDNI TEXT,
+                FOREIGN KEY (OwnerDNI) REFERENCES users(DNI)
+            )"""
+        )
         if users:
-            usr_rows = [(u['Name'], u['DNI'], u['Email'], u['PhoneMobile'], u['PhoneLandline'],
-                         u['Address'], u['City'], u['PostalCode'], u['Province']) for u in users]
+            usr_rows = [
+                (
+                    u['Name'], u['DNI'], u['Email'], u['PhoneMobile'], u['PhoneLandline'],
+                    u['Address'], u['City'], u['PostalCode'], u['Province']
+                ) for u in users
+            ]
             cur.executemany("INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?)", usr_rows)
         if vehicles:
-            veh_rows = [(v['Plate'], v['VIN'], v['Year'], v['Make'], v['Model'], v['Category'], v['OwnerDNI']) for v in vehicles]
+            veh_rows = []
+            for v in vehicles:
+                owner = v.get('OwnerDNI', v.get('UserDNI'))
+                veh_rows.append((
+                    v['Plate'], v['VIN'], v['Year'], v['Make'], v['Model'], v['Category'], owner
+                ))
             cur.executemany("INSERT INTO vehicles VALUES (?,?,?,?,?,?,?)", veh_rows)
         con.commit()
     finally:

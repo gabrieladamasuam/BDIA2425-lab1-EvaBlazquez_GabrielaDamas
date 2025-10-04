@@ -15,11 +15,15 @@ class DNIProvider(BaseProvider):
 
 
 class PlateProvider(BaseProvider):
-    def __init__(self, generator, series_by_year):
+    # La serie se inyecta como atributo de clase: PlateProvider.series_by_year = {...}
+    series_by_year = None
+
+    def __init__(self, generator):
         super().__init__(generator)
-        self.series_by_year = series_by_year
-        self.min_year = min(series_by_year.keys()) if series_by_year else 2000
-        self.max_year = max(series_by_year.keys()) if series_by_year else 2025
+        sb = self.series_by_year or {}
+        self.series_by_year = sb
+        self.min_year = min(sb.keys()) if sb else 2000
+        self.max_year = max(sb.keys()) if sb else 2025
 
     def plate(self, year: int = None) -> str:
         if year is None:
