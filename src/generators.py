@@ -68,9 +68,8 @@ def generate_users(fake, n, data_dir=None, cp_to_municipalities=None, prov_to_tl
 
     if cp_to_municipalities:
         valid_cps = list(cp_to_municipalities.keys())
-
-    iterator = tqdm(range(n), desc="Generando usuarios") if show_progress else range(n)
-    for _ in iterator:
+        iterator = tqdm(range(n), desc="Generando usuarios") if show_progress else range(n)
+        for _ in iterator:
             dni = fake.unique.dni()
             # Teléfono móvil
             prefijo_movil = str(random.choice([6, 7]))

@@ -3,9 +3,10 @@ import sqlite3
 import psycopg2
 from psycopg2 import sql, errors
 from pymongo import MongoClient
+from tqdm import tqdm
 
 # ============================= SQLite =============================
-def write_sqlite(users, vehicles, dbfile):
+def write_sqlite(users, vehicles, dbfile, show_progress: bool = True, batch_size: int = 10000):
     os.makedirs(os.path.dirname(dbfile), exist_ok=True)
     con = sqlite3.connect(dbfile)
     try:
@@ -28,20 +29,47 @@ def write_sqlite(users, vehicles, dbfile):
             )"""
         )
         if users:
-            usr_rows = [
-                (
-                    u['Name'], u['DNI'], u['Email'], u['PhoneMobile'], u['PhoneLandline'],
-                    u['Address'], u['City'], u['PostalCode'], u['Province']
-                ) for u in users
-            ]
-            cur.executemany("INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?)", usr_rows)
+            if show_progress:
+                pbar = tqdm(total=len(users), desc="Escribiendo SQLite usuarios", unit="fila")
+                for i in range(0, len(users), batch_size):
+                    chunk = users[i:i+batch_size]
+                    usr_rows = [
+                        (
+                            u['Name'], u['DNI'], u['Email'], u['PhoneMobile'], u['PhoneLandline'],
+                            u['Address'], u['City'], u['PostalCode'], u['Province']
+                        ) for u in chunk
+                    ]
+                    cur.executemany("INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?)", usr_rows)
+                    pbar.update(len(chunk))
+                pbar.close()
+            else:
+                usr_rows = [
+                    (
+                        u['Name'], u['DNI'], u['Email'], u['PhoneMobile'], u['PhoneLandline'],
+                        u['Address'], u['City'], u['PostalCode'], u['Province']
+                    ) for u in users
+                ]
+                cur.executemany("INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?)", usr_rows)
         if vehicles:
-            veh_rows = [
-                (
-                    v['Plate'], v['VIN'], v['Year'], v['Make'], v['Model'], v['Category'], v['UserDNI']
-                ) for v in vehicles
-            ]
-            cur.executemany("INSERT INTO vehicles VALUES (?,?,?,?,?,?,?)", veh_rows)
+            if show_progress:
+                pbar = tqdm(total=len(vehicles), desc="Escribiendo SQLite vehículos", unit="fila")
+                for i in range(0, len(vehicles), batch_size):
+                    chunk = vehicles[i:i+batch_size]
+                    veh_rows = [
+                        (
+                            v['Plate'], v['VIN'], v['Year'], v['Make'], v['Model'], v['Category'], v['UserDNI']
+                        ) for v in chunk
+                    ]
+                    cur.executemany("INSERT INTO vehicles VALUES (?,?,?,?,?,?,?)", veh_rows)
+                    pbar.update(len(chunk))
+                pbar.close()
+            else:
+                veh_rows = [
+                    (
+                        v['Plate'], v['VIN'], v['Year'], v['Make'], v['Model'], v['Category'], v['UserDNI']
+                    ) for v in vehicles
+                ]
+                cur.executemany("INSERT INTO vehicles VALUES (?,?,?,?,?,?,?)", veh_rows)
         con.commit()
     finally:
         con.close()
@@ -116,18 +144,31 @@ def create_tables(db_config):
     cur.close()
     conn.close()
 
-def insert_into_postgres(users, vehicles, db_config):
+def truncate_postgres_tables(db_config):
+    """Vacía las tablas vehicles y users en ese orden en PostgreSQL."""
+    conn = get_connection(db_config)
+    try:
+        with conn.cursor() as cur:
+            # Truncar ambas tablas en una sola sentencia evita problemas de FK
+            cur.execute("TRUNCATE TABLE vehicles, users;")
+        conn.commit()
+    finally:
+        conn.close()
+
+def insert_into_postgres(users, vehicles, db_config, show_progress: bool = True):
     conn = get_connection(db_config)
     cur = conn.cursor()
     # Insertar usuarios
-    for u in users:
+    user_iter = tqdm(users, desc="Escribiendo PostgreSQL usuarios", unit="fila") if show_progress else users
+    for u in user_iter:
         cur.execute("""
         INSERT INTO users(dni, name, email, phone_mobile, phone_landline, address, city, postal_code, province)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (dni) DO NOTHING;
         """, (u['DNI'], u['Name'], u['Email'], u['PhoneMobile'], u['PhoneLandline'], u['Address'], u['City'], u['PostalCode'], u['Province']))
     # Insertar vehículos
-    for v in vehicles:
+    veh_iter = tqdm(vehicles, desc="Escribiendo PostgreSQL vehículos", unit="fila") if show_progress else vehicles
+    for v in veh_iter:
         cur.execute("""
         INSERT INTO vehicles(plate, vin, year, make, model, category, user_dni)
         VALUES (%s,%s,%s,%s,%s,%s,%s)
@@ -143,7 +184,7 @@ def get_mongo_client(uri="mongodb://localhost:27017/"):
     client = MongoClient(uri)
     return client
 
-def insert_into_mongodb(users, vehicles, db_name="usuarios_vehiculos", uri: str = None):
+def insert_into_mongodb(users, vehicles, db_name="usuarios_vehiculos", uri: str = None, show_progress: bool = True, batch_size: int = 50000):
     """
     Inserta usuarios y vehículos en MongoDB.
     users: lista de diccionarios de usuarios
@@ -162,10 +203,29 @@ def insert_into_mongodb(users, vehicles, db_name="usuarios_vehiculos", uri: str 
     users_col.delete_many({})
     vehicles_col.delete_many({})
 
-    # Insertar datos
-    users_col.insert_many(users)
-    vehicles_col.insert_many(vehicles)
+    # Insertar datos (posible chunking para grandes volúmenes)
+    if users:
+        if show_progress:
+            pbar = tqdm(total=len(users), desc="Escribiendo MongoDB usuarios", unit="fila")
+            for i in range(0, len(users), batch_size):
+                chunk = users[i:i+batch_size]
+                users_col.insert_many(chunk)
+                pbar.update(len(chunk))
+            pbar.close()
+        else:
+            users_col.insert_many(users)
+
+    if vehicles:
+        if show_progress:
+            pbar = tqdm(total=len(vehicles), desc="Escribiendo MongoDB vehículos", unit="fila")
+            for i in range(0, len(vehicles), batch_size):
+                chunk = vehicles[i:i+batch_size]
+                vehicles_col.insert_many(chunk)
+                pbar.update(len(chunk))
+            pbar.close()
+        else:
+            vehicles_col.insert_many(vehicles)
 
     client.close()
-    print(f"Insertados {len(users)} usuarios y {len(vehicles)} vehículos en MongoDB ({db_name})")
+    # Sin print final; la barra de progreso informa del avance
 

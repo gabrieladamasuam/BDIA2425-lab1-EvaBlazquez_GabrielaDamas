@@ -2,15 +2,13 @@ import os
 import argparse
 from generators import build_generators, generate_users, generate_vehicles
 from io_utils import write_csv, write_parquet, write_json_nested, write_json_separated, write_avro_nested, write_avro_separated
-from db_utils import write_sqlite, create_tables, insert_into_postgres, insert_into_mongodb, ensure_database_exists
+from db_utils import write_sqlite, create_tables, insert_into_postgres, insert_into_mongodb, ensure_database_exists, truncate_postgres_tables
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_users", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=None)
-    parser.add_argument("--data_dir", type=str, default="data")
-    parser.add_argument("--out_dir", type=str, default="output")
 
     # Parámetros opcionales para PostgreSQL (sobrescriben variables de entorno si se proporcionan)
     parser.add_argument("--pg-dbname", type=str, help="Nombre de la base de datos de PostgreSQL")
@@ -20,6 +18,7 @@ def main():
     parser.add_argument("--pg-port", type=int, help="Puerto de PostgreSQL")
     parser.add_argument("--pg-create-db", action="store_true", help="Crear la base de datos destino si no existe (requiere privilegios)")
     parser.add_argument("--pg-admin-db", type=str, default="postgres", help="Base de datos administrativa para crear la BD destino (por defecto: postgres)")
+    parser.add_argument("--pg-reset", action="store_true", help="Vaciar tablas (TRUNCATE) antes de insertar para no acumular entre ejecuciones")
 
     # Parámetros opcionales para MongoDB
     parser.add_argument("--mongo-uri", type=str, help="Cadena de conexión de MongoDB (por defecto MONGO_URI o mongodb://localhost:27017/)")
@@ -28,8 +27,8 @@ def main():
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(script_dir)
-    data_dir = args.data_dir if os.path.isabs(args.data_dir) else os.path.join(repo_root, args.data_dir)
-    out_dir = args.out_dir if os.path.isabs(args.out_dir) else os.path.join(repo_root, args.out_dir)
+    data_dir = os.path.join(repo_root, "data")
+    out_dir = os.path.join(repo_root, "output")
     os.makedirs(out_dir, exist_ok=True)
 
     # Configuración de PostgreSQL: variables de entorno con override por flags
@@ -99,6 +98,11 @@ def main():
             except Exception as e:
                 print(f"PostgreSQL: no se pudo asegurar la BD '{db_config['dbname']}' (creación opcional): {e}")
         create_tables(db_config)
+        if args.pg_reset:
+            try:
+                truncate_postgres_tables(db_config)
+            except Exception as e:
+                print(f"PostgreSQL: no se pudieron truncar las tablas: {e}")
         insert_into_postgres(users, vehicles, db_config)
         postgres_ok = True
     except Exception as e:
@@ -112,17 +116,8 @@ def main():
     except Exception as e:
         print(f"MongoDB: error al insertar: {e}")
     
-    print(f"CSVs escritos en {users_csv} y {vehicles_csv}")
-    print(f"Parquets escritos en {users_parquet} y {vehicles_parquet}")
-    print(f"JSON anidado escrito en {json_nested_path}")
-    print(f"JSON de usuarios escrito en {users_json_path}")
-    print(f"JSON de vehículos escrito en {vehicles_json_path}")
-    print(f"AVRO anidado escrito en {users_avro_nested}")
-    print(f"AVRO de usuarios escrito en {users_avro_path}")
-    print(f"AVRO de vehículos escrito en {vehicles_avro_path}") 
     print(f"BBDD SQLite escrita en {sqlite_file}")
     print("Datos volcados a PostgreSQL correctamente." if postgres_ok else "Fallo al volcar a PostgreSQL.")
-
     print("Datos volcados a MongoDB correctamente." if mongodb_ok else "Fallo al volcar a MongoDB.")
     print("Proceso completado.")
 
