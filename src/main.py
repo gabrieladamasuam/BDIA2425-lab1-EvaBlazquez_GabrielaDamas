@@ -27,7 +27,6 @@ def main():
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(script_dir)
-    data_dir = os.path.join(repo_root, "data")
     out_dir = os.path.join(repo_root, "output")
     os.makedirs(out_dir, exist_ok=True)
 
@@ -46,7 +45,7 @@ def main():
     if args.pg_port: db_config["port"] = args.pg_port
 
     # Resumen de ejecución
-    print(f"Iniciando generación: n_users={args.n_users}, seed={args.seed}, data_dir={data_dir}, out_dir={out_dir}")
+    print(f"Iniciando generación: n_users={args.n_users}, seed={args.seed}, out_dir={out_dir}")
     pg_dest = f"{db_config['host']}:{db_config['port']}/{db_config['dbname']}"
     print(f"Destino PostgreSQL: {pg_dest}")
 
@@ -56,7 +55,7 @@ def main():
     print(f"Destino MongoDB: {mongo_uri} db={mongo_db}")
 
     fake = build_generators(seed=args.seed)
-    users = generate_users(fake, args.n_users, data_dir=data_dir)
+    users = generate_users(fake, args.n_users)
     vehicles = generate_vehicles(fake, users)
     
     # CSV
@@ -116,9 +115,6 @@ def main():
     except Exception as e:
         print(f"MongoDB: error al insertar: {e}")
     
-    print(f"BBDD SQLite escrita en {sqlite_file}")
-    print("Datos volcados a PostgreSQL correctamente." if postgres_ok else "Fallo al volcar a PostgreSQL.")
-    print("Datos volcados a MongoDB correctamente." if mongodb_ok else "Fallo al volcar a MongoDB.")
     print("Proceso completado.")
 
 if __name__ == "__main__":

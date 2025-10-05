@@ -51,7 +51,6 @@ def build_generators(seed=None, locale='es_ES'):
         Faker.seed(seed)
         random.seed(seed)
     fake.add_provider(DNIProvider)
-    # Registrar provider de matrículas (autocargará las series desde data/)
     fake.add_provider(PlateProvider)
     fake.add_provider(VINProvider)
     return fake

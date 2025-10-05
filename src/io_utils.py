@@ -12,9 +12,7 @@ from fastavro import writer as avro_writer, parse_schema
 def load_plate_series(csv_series: str) -> Dict[int, List[str]]:
     """Carga series de matrículas por año desde un CSV (columnas: year, series).
     """
-    if not os.path.exists(csv_series):
-        raise FileNotFoundError(f"No se encontró el archivo requerido: {csv_series}")
-    series_by_year: Dict[int, List[str]] = {}
+    series_by_year = {}
     with open(csv_series, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
         for row in reader:
@@ -27,14 +25,9 @@ def load_plate_series(csv_series: str) -> Dict[int, List[str]]:
 def load_postal_and_phone(csv_cp: str, csv_tlf: str) -> Tuple[Dict[str, List[str]], Dict[str, str], Dict[str, str]]:
     """Carga códigos postales, municipios y prefijos de teléfono por provincia.
     """
-    if not os.path.exists(csv_cp):
-        raise FileNotFoundError(f"No se encontró el archivo requerido: {csv_cp}")
-    if not os.path.exists(csv_tlf):
-        raise FileNotFoundError(f"No se encontró el archivo requerido: {csv_tlf}")
-
-    cp_to_municipalities: Dict[str, List[str]] = {}
-    prov_to_tlf: Dict[str, str] = {}
-    prov_code_to_name: Dict[str, str] = {}
+    cp_to_municipalities = {}
+    prov_to_tlf = {}
+    prov_code_to_name = {}
 
     with open(csv_cp, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)

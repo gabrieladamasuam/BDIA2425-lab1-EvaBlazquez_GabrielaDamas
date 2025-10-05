@@ -29,47 +29,34 @@ def write_sqlite(users, vehicles, dbfile, show_progress: bool = True, batch_size
             )"""
         )
         if users:
-            if show_progress:
-                pbar = tqdm(total=len(users), desc="Escribiendo SQLite usuarios", unit="fila")
-                for i in range(0, len(users), batch_size):
-                    chunk = users[i:i+batch_size]
-                    usr_rows = [
-                        (
-                            u['Name'], u['DNI'], u['Email'], u['PhoneMobile'], u['PhoneLandline'],
-                            u['Address'], u['City'], u['PostalCode'], u['Province']
-                        ) for u in chunk
-                    ]
-                    cur.executemany("INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?)", usr_rows)
-                    pbar.update(len(chunk))
-                pbar.close()
-            else:
+            pbar = tqdm(total=len(users), desc="Escribiendo SQLite usuarios", unit="fila") if show_progress else None
+            for i in range(0, len(users), batch_size):
+                chunk = users[i:i+batch_size]
                 usr_rows = [
                     (
                         u['Name'], u['DNI'], u['Email'], u['PhoneMobile'], u['PhoneLandline'],
                         u['Address'], u['City'], u['PostalCode'], u['Province']
-                    ) for u in users
+                    ) for u in chunk
                 ]
                 cur.executemany("INSERT INTO users VALUES (?,?,?,?,?,?,?,?,?)", usr_rows)
-        if vehicles:
-            if show_progress:
-                pbar = tqdm(total=len(vehicles), desc="Escribiendo SQLite vehículos", unit="fila")
-                for i in range(0, len(vehicles), batch_size):
-                    chunk = vehicles[i:i+batch_size]
-                    veh_rows = [
-                        (
-                            v['Plate'], v['VIN'], v['Year'], v['Make'], v['Model'], v['Category'], v['UserDNI']
-                        ) for v in chunk
-                    ]
-                    cur.executemany("INSERT INTO vehicles VALUES (?,?,?,?,?,?,?)", veh_rows)
+                if pbar:
                     pbar.update(len(chunk))
+            if pbar:
                 pbar.close()
-            else:
+        if vehicles:
+            pbar = tqdm(total=len(vehicles), desc="Escribiendo SQLite vehículos", unit="fila") if show_progress else None
+            for i in range(0, len(vehicles), batch_size):
+                chunk = vehicles[i:i+batch_size]
                 veh_rows = [
                     (
                         v['Plate'], v['VIN'], v['Year'], v['Make'], v['Model'], v['Category'], v['UserDNI']
-                    ) for v in vehicles
+                    ) for v in chunk
                 ]
                 cur.executemany("INSERT INTO vehicles VALUES (?,?,?,?,?,?,?)", veh_rows)
+                if pbar:
+                    pbar.update(len(chunk))
+            if pbar:
+                pbar.close()
         con.commit()
     finally:
         con.close()
@@ -205,25 +192,23 @@ def insert_into_mongodb(users, vehicles, db_name="usuarios_vehiculos", uri: str 
 
     # Insertar datos (posible chunking para grandes volúmenes)
     if users:
-        if show_progress:
-            pbar = tqdm(total=len(users), desc="Escribiendo MongoDB usuarios", unit="fila")
-            for i in range(0, len(users), batch_size):
-                chunk = users[i:i+batch_size]
-                users_col.insert_many(chunk)
+        pbar = tqdm(total=len(users), desc="Escribiendo MongoDB usuarios", unit="fila") if show_progress else None
+        for i in range(0, len(users), batch_size):
+            chunk = users[i:i+batch_size]
+            users_col.insert_many(chunk)
+            if pbar:
                 pbar.update(len(chunk))
+        if pbar:
             pbar.close()
-        else:
-            users_col.insert_many(users)
 
     if vehicles:
-        if show_progress:
-            pbar = tqdm(total=len(vehicles), desc="Escribiendo MongoDB vehículos", unit="fila")
-            for i in range(0, len(vehicles), batch_size):
-                chunk = vehicles[i:i+batch_size]
-                vehicles_col.insert_many(chunk)
+        pbar = tqdm(total=len(vehicles), desc="Escribiendo MongoDB vehículos", unit="fila") if show_progress else None
+        for i in range(0, len(vehicles), batch_size):
+            chunk = vehicles[i:i+batch_size]
+            vehicles_col.insert_many(chunk)
+            if pbar:
                 pbar.update(len(chunk))
+        if pbar:
             pbar.close()
-        else:
-            vehicles_col.insert_many(vehicles)
 
     client.close()

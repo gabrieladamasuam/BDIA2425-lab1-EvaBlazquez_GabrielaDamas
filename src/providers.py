@@ -22,7 +22,6 @@ _SERIES_FILE = os.path.join(_REPO_ROOT, 'data', 'series_matriculas.csv')
 
 
 class PlateProvider(BaseProvider):
-    # Autocarga de series desde CSV en import
     series_by_year = load_plate_series(_SERIES_FILE)
     min_year = min(series_by_year.keys()) if series_by_year else 2000
     max_year = max(series_by_year.keys()) if series_by_year else 2025
