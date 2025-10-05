@@ -227,5 +227,3 @@ def insert_into_mongodb(users, vehicles, db_name="usuarios_vehiculos", uri: str 
             vehicles_col.insert_many(vehicles)
 
     client.close()
-    # Sin print final; la barra de progreso informa del avance
-

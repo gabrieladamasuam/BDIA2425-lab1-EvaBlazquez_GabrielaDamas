@@ -1,5 +1,7 @@
 from faker.providers import BaseProvider
 import random
+import os
+from io_utils import load_plate_series
 
 
 class DNIProvider(BaseProvider):
@@ -14,16 +16,16 @@ class DNIProvider(BaseProvider):
 
 
 
-class PlateProvider(BaseProvider):
-    # La serie se inyecta como atributo de clase: PlateProvider.series_by_year = {...}
-    series_by_year = None
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+_REPO_ROOT = os.path.dirname(_SCRIPT_DIR)
+_SERIES_FILE = os.path.join(_REPO_ROOT, 'data', 'series_matriculas.csv')
 
-    def __init__(self, generator):
-        super().__init__(generator)
-        sb = self.series_by_year or {}
-        self.series_by_year = sb
-        self.min_year = min(sb.keys()) if sb else 2000
-        self.max_year = max(sb.keys()) if sb else 2025
+
+class PlateProvider(BaseProvider):
+    # Autocarga de series desde CSV en import
+    series_by_year = load_plate_series(_SERIES_FILE)
+    min_year = min(series_by_year.keys()) if series_by_year else 2000
+    max_year = max(series_by_year.keys()) if series_by_year else 2025
 
     def plate(self, year: int = None) -> str:
         if year is None:

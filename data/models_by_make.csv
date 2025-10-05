@@ -1,0 +1,39 @@
+make,model,category
+Seat,Ibiza,urbano
+Seat,León,berlina
+Seat,Ateca,SUV
+Seat,Toledo,sedán
+Volkswagen,Golf,urbano
+Volkswagen,Passat,berlina
+Volkswagen,Tiguan,SUV
+Volkswagen,Polo,urbano
+Audi,A3,berlina
+Audi,A4,berlina
+Audi,Q5,SUV
+Audi,TT,deportivo
+BMW,Serie 1,urbano
+BMW,Serie 3,berlina
+BMW,Serie 5,berlina
+BMW,X5,SUV
+Mercedes-Benz,Clase A,urbano
+Mercedes-Benz,Clase C,berlina
+Mercedes-Benz,GLA,SUV
+Renault,Clio,urbano
+Renault,Mégane,berlina
+Renault,Captur,SUV
+Renault,Scénic,monovolumen
+Peugeot,208,urbano
+Peugeot,308,berlina
+Peugeot,3008,SUV
+Peugeot,5008,monovolumen
+Toyota,Corolla,berlina
+Toyota,Yaris,urbano
+Toyota,RAV4,SUV
+Ford,Fiesta,urbano
+Ford,Focus,berlina
+Ford,Kuga,SUV
+Ford,Mustang,deportivo
+Citroën,C3,urbano
+Citroën,C4,berlina
+Citroën,Berlingo,monovolumen
+Citroën,C5 Aircross,SUV
