@@ -11,13 +11,6 @@ Este proyecto genera datos sintéticos de usuarios y vehículos y los exporta a 
   - PostgreSQL accesible (localhost:5432 por defecto)
   - MongoDB accesible (mongodb://localhost:27017/ por defecto)
 
-Instalación de dependencias (una vez, dentro del repo):
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
 
 ## Estructura relevante
 
@@ -120,11 +113,10 @@ mongosh "mongodb://localhost:27017/" --quiet --eval 'const d=db.getSiblingDB("us
 
 ## Notas y resolución de problemas
 
-- Si falta alguna librería (p. ej., pyarrow o fastavro), instálala con `pip install -r requirements.txt`.
 - PostgreSQL acumula entre ejecuciones si no usas `--pg-reset` (SQLite y Mongo se resetean cada vez).
 - Puedes fijar valores por defecto con variables de entorno y así simplificar el comando.
 - Si cambias `--seed` o `--n_users`, las matrículas/vins pueden variar (y aumentar el total en Postgres si no reseteas).
 
 ## Licencia
 
-Proyecto académico para la asignatura BDIA 24/25.
+Proyecto académico para la asignatura BBDD 25/26.
