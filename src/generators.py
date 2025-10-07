@@ -4,7 +4,7 @@ from tqdm import tqdm
 import random
 import unicodedata
 import os
-from io_utils import load_postal_and_phone
+from io_utils import load_postal_and_phone, load_models_by_make
 import csv
 
 
@@ -28,21 +28,7 @@ _CP_FILE = os.path.join(_REPO_ROOT, 'data', 'codigos_postales_municipios.csv')
 _TLF_FILE = os.path.join(_REPO_ROOT, 'data', 'prov_tlf.csv')
 _MODELS_FILE = os.path.join(_REPO_ROOT, 'data', 'models_by_make.csv')
 _CP_TO_MUNICIPALITIES, _PROV_TO_TLF, _PROV_CODE_TO_NAME = load_postal_and_phone(_CP_FILE, _TLF_FILE)
-
-def _load_models_by_make(path: str):
-    mapping = {}
-    if not os.path.exists(path):
-        return mapping
-    with open(path, 'r', encoding='utf-8') as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            make = row['make'].strip()
-            model = row['model'].strip()
-            category = row['category'].strip()
-            mapping.setdefault(make, []).append({"model": model, "category": category})
-    return mapping
-
-_MODELS_BY_MAKE = _load_models_by_make(_MODELS_FILE)
+_MODELS_BY_MAKE = load_models_by_make(_MODELS_FILE)
 
 
 def build_generators(seed=None, locale='es_ES'):

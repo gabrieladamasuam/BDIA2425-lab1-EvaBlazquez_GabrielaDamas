@@ -39,16 +39,15 @@ Parámetros principales:
 
 ### Carga en PostgreSQL (opcional)
 
-Configura por variables de entorno o por flags. Ejemplos:
+Configura por variables de entorno o por flags. La aplicación intentará asegurar la base de datos (crearla si no existe) automáticamente si tu usuario tiene privilegios. No hay ningún flag específico para crear la BD.
 
-- Usando flags y creando la BD si no existe:
+- Ejemplo usando flags de conexión (sin crear manualmente la BD):
 ```bash
 python3 src/main.py \
   --seed 1 --n_users 1000 \
   --pg-dbname usuarios_vehiculos \
   --pg-user postgres --pg-password 1234 \
-  --pg-host localhost --pg-port 5432 \
-  --pg-create-db
+  --pg-host localhost --pg-port 5432
 ```
 
 - Evitar acumulación entre ejecuciones (TRUNCATE antes de insertar):
@@ -113,10 +112,11 @@ mongosh "mongodb://localhost:27017/" --quiet --eval 'const d=db.getSiblingDB("us
 
 ## Notas y resolución de problemas
 
+- PostgreSQL: la BD se intenta crear automáticamente si no existe. Si no tienes permisos de creación verás un aviso; en ese caso crea la BD manualmente o usa una existente.
 - PostgreSQL acumula entre ejecuciones si no usas `--pg-reset` (SQLite y Mongo se resetean cada vez).
 - Puedes fijar valores por defecto con variables de entorno y así simplificar el comando.
 - Si cambias `--seed` o `--n_users`, las matrículas/vins pueden variar (y aumentar el total en Postgres si no reseteas).
 
 ## Licencia
 
-Proyecto académico para la asignatura BBDD 25/26.
+Proyecto académico para la asignatura BBDD 24/25.

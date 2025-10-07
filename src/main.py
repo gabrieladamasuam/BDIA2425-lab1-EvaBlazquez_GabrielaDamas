@@ -16,8 +16,6 @@ def main():
     parser.add_argument("--pg-password", type=str, help="Contraseña de PostgreSQL")
     parser.add_argument("--pg-host", type=str, help="Host de PostgreSQL")
     parser.add_argument("--pg-port", type=int, help="Puerto de PostgreSQL")
-    parser.add_argument("--pg-create-db", action="store_true", help="Crear la base de datos destino si no existe (requiere privilegios)")
-    parser.add_argument("--pg-admin-db", type=str, default="postgres", help="Base de datos administrativa para crear la BD destino (por defecto: postgres)")
     parser.add_argument("--pg-reset", action="store_true", help="Vaciar tablas (TRUNCATE) antes de insertar para no acumular entre ejecuciones")
 
     # Parámetros opcionales para MongoDB
@@ -89,13 +87,11 @@ def main():
     write_sqlite(users, vehicles, sqlite_file)
     
     # PostgreSQL
-    postgres_ok = False
     try:
-        if args.pg_create_db:
-            try:
-                ensure_database_exists(db_config, admin_db=args.pg_admin_db)
-            except Exception as e:
-                print(f"PostgreSQL: no se pudo asegurar la BD '{db_config['dbname']}' (creación opcional): {e}")
+        try:
+            ensure_database_exists(db_config)
+        except Exception as e:
+            print(f"PostgreSQL: no se pudo asegurar la BD '{db_config['dbname']}' (creación opcional): {e}")
         create_tables(db_config)
         if args.pg_reset:
             try:
@@ -103,15 +99,12 @@ def main():
             except Exception as e:
                 print(f"PostgreSQL: no se pudieron truncar las tablas: {e}")
         insert_into_postgres(users, vehicles, db_config)
-        postgres_ok = True
     except Exception as e:
         print(f"PostgreSQL: error al crear/insertar: {e}")
 
     # MongoDB
-    mongodb_ok = False
     try:
         insert_into_mongodb(users, vehicles, db_name=mongo_db, uri=mongo_uri)
-        mongodb_ok = True
     except Exception as e:
         print(f"MongoDB: error al insertar: {e}")
     

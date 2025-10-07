@@ -48,6 +48,20 @@ def load_postal_and_phone(csv_cp: str, csv_tlf: str) -> Tuple[Dict[str, List[str
     return cp_to_municipalities, prov_to_tlf, prov_code_to_name
 
 
+def load_models_by_make(path: str):
+    mapping = {}
+    if not os.path.exists(path):
+        return mapping
+    with open(path, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            make = row['make'].strip()
+            model = row['model'].strip()
+            category = row['category'].strip()
+            mapping.setdefault(make, []).append({"model": model, "category": category})
+    return mapping
+
+
 # ===================== Writers (salida de datos) =====================
 
 def write_csv(data: List[dict], filepath: str, show_progress: bool = True) -> None:
