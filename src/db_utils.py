@@ -6,7 +6,8 @@ from pymongo import MongoClient
 from tqdm import tqdm
 
 # ============================= SQLite =============================
-def write_sqlite(users, vehicles, dbfile, show_progress: bool = True, batch_size: int = 10000):
+def write_sqlite(users, vehicles, dbfile, show_progress = True, batch_size = 10000):
+    """Crea y rellena una BD SQLite; borra tablas, crea y hace inserciones por lotes."""
     os.makedirs(os.path.dirname(dbfile), exist_ok=True)
     con = sqlite3.connect(dbfile)
     try:
@@ -63,6 +64,7 @@ def write_sqlite(users, vehicles, dbfile, show_progress: bool = True, batch_size
 
 # ============================= PostgreSQL =============================
 def get_connection(db_config):
+    """Devuelve una conexión a PostgreSQL usando db_config."""
     return psycopg2.connect(
         dbname=db_config['dbname'],
         user=db_config['user'],
@@ -71,12 +73,8 @@ def get_connection(db_config):
         port=db_config['port']
     )
 
-def ensure_database_exists(db_config, admin_db: str = "postgres"):
-    """
-    Garantiza que existe la base de datos indicada en db_config['dbname'].
-    Se conecta a la BD administrativa (por defecto 'postgres') y ejecuta CREATE DATABASE si no existe.
-    Requiere privilegios para crear bases de datos.
-    """
+def ensure_database_exists(db_config, admin_db = "postgres"):
+    """Crea la base de datos si no existe conectando a admin_db (requiere permisos)."""
     # Conectar a la BD administrativa con las mismas credenciales
     conn = psycopg2.connect(
         dbname=admin_db,
@@ -99,6 +97,7 @@ def ensure_database_exists(db_config, admin_db: str = "postgres"):
         conn.close()
 
 def create_tables(db_config):
+    """Crea tablas users y vehicles en PostgreSQL si no existen."""
     conn = get_connection(db_config)
     cur = conn.cursor()
     # Tabla usuarios
@@ -132,19 +131,21 @@ def create_tables(db_config):
     conn.close()
 
 def truncate_postgres_tables(db_config):
-    """Vacía las tablas vehicles y users en ese orden en PostgreSQL."""
+    """Vacía tablas vehicles y users en una sola instrucción TRUNCATE."""
     conn = get_connection(db_config)
     try:
         with conn.cursor() as cur:
-            # Truncar ambas tablas en una sola sentencia evita problemas de FK
+            # Truncar ambas tablas en una sola sentencia evita problemas de ForeignKey entre ellas.
             cur.execute("TRUNCATE TABLE vehicles, users;")
         conn.commit()
     finally:
         conn.close()
 
-def insert_into_postgres(users, vehicles, db_config, show_progress: bool = True):
+def insert_into_postgres(users, vehicles, db_config, show_progress = True):
+    """Inserta users y vehicles en PostgreSQL con ON CONFLICT DO NOTHING y progreso."""
     conn = get_connection(db_config)
     cur = conn.cursor()
+    # ON CONFLICT DO NOTHING: evita duplicados; para reset usa --pg-reset; para upsert cambia a DO UPDATE.
     # Insertar usuarios
     user_iter = tqdm(users, desc="Escribiendo PostgreSQL usuarios", unit="fila") if show_progress else users
     for u in user_iter:
@@ -167,18 +168,12 @@ def insert_into_postgres(users, vehicles, db_config, show_progress: bool = True)
 
 # ============================= MongoDB =============================
 def get_mongo_client(uri="mongodb://localhost:27017/"):
-    """Conectar a MongoDB y devolver el cliente"""
+    """Devuelve un cliente de MongoDB para la URI dada."""
     client = MongoClient(uri)
     return client
 
-def insert_into_mongodb(users, vehicles, db_name="usuarios_vehiculos", uri: str = None, show_progress: bool = True, batch_size: int = 50000):
-    """
-    Inserta usuarios y vehículos en MongoDB.
-    users: lista de diccionarios de usuarios
-    vehicles: lista de diccionarios de vehículos
-    db_name: nombre de la base de datos de MongoDB
-    uri: cadena de conexión a MongoDB (por defecto mongodb://localhost:27017/)
-    """
+def insert_into_mongodb(users, vehicles, db_name="usuarios_vehiculos", uri = None, show_progress = True, batch_size = 50000):
+    """Vacía e inserta users y vehicles en MongoDB por lotes con barra de progreso."""
     client = get_mongo_client(uri or "mongodb://localhost:27017/")
     db = client[db_name]
     

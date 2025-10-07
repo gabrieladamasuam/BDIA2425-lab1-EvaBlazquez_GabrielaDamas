@@ -10,8 +10,7 @@ from fastavro import writer as avro_writer, parse_schema
 # ===================== Loaders (entrada de datos) =====================
 
 def load_plate_series(csv_series: str) -> Dict[int, List[str]]:
-    """Carga series de matrículas por año desde un CSV (columnas: year, series).
-    """
+    """Lee series de matrículas por año desde CSV (columnas: year, series)."""
     series_by_year = {}
     with open(csv_series, 'r', encoding='utf-8') as f:
         reader = csv.DictReader(f)
@@ -23,8 +22,7 @@ def load_plate_series(csv_series: str) -> Dict[int, List[str]]:
 
 
 def load_postal_and_phone(csv_cp: str, csv_tlf: str) -> Tuple[Dict[str, List[str]], Dict[str, str], Dict[str, str]]:
-    """Carga códigos postales, municipios y prefijos de teléfono por provincia.
-    """
+    """Lee CP→municipios, prefijos provinciales y nombre de provincia desde CSV."""
     cp_to_municipalities = {}
     prov_to_tlf = {}
     prov_code_to_name = {}
@@ -49,6 +47,7 @@ def load_postal_and_phone(csv_cp: str, csv_tlf: str) -> Tuple[Dict[str, List[str
 
 
 def load_models_by_make(path: str):
+    """Lee catálogo marca→[ {model, category} ] desde CSV; devuelve dict."""
     mapping = {}
     if not os.path.exists(path):
         return mapping
@@ -65,6 +64,7 @@ def load_models_by_make(path: str):
 # ===================== Writers (salida de datos) =====================
 
 def write_csv(data: List[dict], filepath: str, show_progress: bool = True) -> None:
+    """Escribe una lista de dicts a CSV con cabecera y barra de progreso."""
     if not data:
         return
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
@@ -77,6 +77,7 @@ def write_csv(data: List[dict], filepath: str, show_progress: bool = True) -> No
 
 
 def write_parquet(data: List[dict], filepath: str, show_progress: bool = True, chunk_size: int = 50000) -> None:
+    """Escribe Parquet (PyArrow, Snappy); en chunks si supera chunk_size."""
     if not data:
         return
     if pa is None or pq is None:
@@ -117,6 +118,9 @@ def write_parquet(data: List[dict], filepath: str, show_progress: bool = True, c
 
 
 def write_json_nested(users: List[dict], vehicles: List[dict], filepath: str, show_progress: bool = True) -> None:
+    """Escribe JSON anidado (usuarios con array de Vehicles) en streaming con indentación.
+    Mantiene barra de progreso sin sacrificar legibilidad del JSON.
+    """
     # Agrupar vehículos por DNI del propietario
     veh_by_dni: Dict[str, List[dict]] = {}
     for v in vehicles:
@@ -124,33 +128,42 @@ def write_json_nested(users: List[dict], vehicles: List[dict], filepath: str, sh
         if key is not None:
             veh_by_dni.setdefault(key, []).append(v)
 
-    users_nested = []
-    iterator = tqdm(users, desc="Escribiendo JSON anidado", unit="usuario") if show_progress else users
-    for u in iterator:
-        u_copy = dict(u)
-        u_copy['Vehicles'] = veh_by_dni.get(u['DNI'], [])
-        users_nested.append(u_copy)
-
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     with open(filepath, 'w', encoding='utf-8') as f:
-        json.dump(users_nested, f, ensure_ascii=False, indent=2)
+        f.write('[\n')
+        it = tqdm(users, desc="Escribiendo JSON anidado", unit="usuario") if show_progress else users
+        total = len(users)
+        for idx, u in enumerate(it):
+            u_copy = dict(u)
+            u_copy['Vehicles'] = veh_by_dni.get(u['DNI'], [])
+            # Formateo con indentación adicional dentro del array
+            s = json.dumps(u_copy, ensure_ascii=False, indent=2)
+            s_indented = '  ' + s.replace('\n', '\n  ')
+            if idx < total - 1:
+                f.write(f"{s_indented},\n")
+            else:
+                f.write(f"{s_indented}\n")
+        f.write(']\n')
 
 
 def write_json_separated(users: List[dict], vehicles: List[dict], users_path: str, vehicles_path: str, show_progress: bool = True) -> None:
+    """Escribe users.json y vehicles.json en streaming con indentación y progreso."""
     os.makedirs(os.path.dirname(users_path), exist_ok=True)
     os.makedirs(os.path.dirname(vehicles_path), exist_ok=True)
     if show_progress:
-        # Escritura en streaming con indentado simple para mostrar progreso
+        # Escritura en streaming con indentación y barra de progreso
         def stream_json_array(path: str, items: List[dict], item_desc: str):
             with open(path, 'w', encoding='utf-8') as f:
                 f.write('[\n')
                 it = tqdm(items, desc=f"Escribiendo {item_desc}", unit="elem")
+                total = len(items)
                 for idx, obj in enumerate(it):
-                    line = json.dumps(obj, ensure_ascii=False)
-                    if idx < len(items) - 1:
-                        f.write(f"  {line},\n")
+                    s = json.dumps(obj, ensure_ascii=False, indent=2)
+                    s_indented = '  ' + s.replace('\n', '\n  ')
+                    if idx < total - 1:
+                        f.write(f"{s_indented},\n")
                     else:
-                        f.write(f"  {line}\n")
+                        f.write(f"{s_indented}\n")
                 f.write(']\n')
         stream_json_array(users_path, users, "JSON usuarios")
         stream_json_array(vehicles_path, vehicles, "JSON vehículos")
@@ -162,6 +175,7 @@ def write_json_separated(users: List[dict], vehicles: List[dict], users_path: st
 
 
 def write_avro_nested(users: List[dict], vehicles: List[dict], filepath: str, show_progress: bool = True) -> None:
+    """Escribe AVRO anidado (usuarios con Vehicles) usando fastavro y esquema explícito."""
     if avro_writer is None or parse_schema is None:
         print(f"fastavro no está instalado. Omitiendo AVRO: {filepath}")
         return
@@ -221,6 +235,7 @@ def write_avro_nested(users: List[dict], vehicles: List[dict], filepath: str, sh
 
 
 def write_avro_separated(users: List[dict], vehicles: List[dict], users_path: str, vehicles_path: str, show_progress: bool = True) -> None:
+    """Escribe AVRO separado (users/vehicles) con esquemas explícitos y progreso."""
     if avro_writer is None or parse_schema is None:
         print(f"fastavro no está instalado. Omitiendo AVRO: {users_path}, {vehicles_path}")
         return

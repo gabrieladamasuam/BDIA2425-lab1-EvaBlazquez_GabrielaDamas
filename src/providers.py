@@ -5,6 +5,7 @@ from io_utils import load_plate_series
 
 
 class DNIProvider(BaseProvider):
+    """Genera DNI válidos (8 dígitos + letra de control oficial)."""
     __letters = 'TRWAGMYFPDXBNJZSQVHLCKE'
     def dni_number(self) -> int:
         return self.generator.random_int(min=11111111, max=99999999)
@@ -22,11 +23,13 @@ _SERIES_FILE = os.path.join(_REPO_ROOT, 'data', 'series_matriculas.csv')
 
 
 class PlateProvider(BaseProvider):
+    """Genera matrículas españolas usando series por año cargadas desde CSV."""
     series_by_year = load_plate_series(_SERIES_FILE)
     min_year = min(series_by_year.keys()) if series_by_year else 2000
     max_year = max(series_by_year.keys()) if series_by_year else 2025
 
     def plate(self, year: int = None) -> str:
+        """Devuelve una matrícula (NNNN-LLL) coherente con el año proporcionado."""
         if year is None:
             year = random.randint(self.min_year, self.max_year)
         series = self.series_by_year.get(year, ["ZZZ"])
@@ -37,8 +40,10 @@ class PlateProvider(BaseProvider):
 
 
 class VINProvider(BaseProvider):
+    """Genera VIN de 17 caracteres con checksum y codificación de año."""
     chars = "0123456789ABCDEFGHJKLMNPRSTUVWXYZ"  # sin I, O, Q
 
+    # Códigos de año cubiertos 2000–2025; si el año no existe en el mapa se usa 'X'
     year_codes = {
         2000: "Y", 2001: "1", 2002: "2", 2003: "3", 2004: "4",
         2005: "5", 2006: "6", 2007: "7", 2008: "8", 2009: "9",
@@ -55,6 +60,7 @@ class VINProvider(BaseProvider):
     weights = [8,7,6,5,4,3,2,10,0,9,8,7,6,5,4,3,2]
 
     def vin(self, wmi: str, year: int) -> str:
+        """Devuelve un VIN válido combinando WMI, año y dígito de control."""
         # Generar VDS (4-8)
         vds = ''.join(random.choice(self.chars) for _ in range(5))
         # Año en el carácter 10
@@ -72,6 +78,7 @@ class VINProvider(BaseProvider):
         return vin_final
 
     def _calculate_checksum(self, vin17: str) -> str:
+        """Calcula el dígito de control (posición 9) del VIN."""
         total = 0
         for i, char in enumerate(vin17):
             val = self.transl.get(char, 0)

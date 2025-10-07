@@ -9,6 +9,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--n_users", type=int, default=1000)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument("--out-dir", type=str, default=None, help="Directorio de salida (por defecto ./output en la raíz del repo)")
 
     # Parámetros opcionales para PostgreSQL (sobrescriben variables de entorno si se proporcionan)
     parser.add_argument("--pg-dbname", type=str, help="Nombre de la base de datos de PostgreSQL")
@@ -25,7 +26,8 @@ def main():
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root = os.path.dirname(script_dir)
-    out_dir = os.path.join(repo_root, "output")
+    # Directorio de salida configurable
+    out_dir = os.path.abspath(args.out_dir) if args.out_dir else os.path.join(repo_root, "output")
     os.makedirs(out_dir, exist_ok=True)
 
     # Configuración de PostgreSQL: variables de entorno con override por flags

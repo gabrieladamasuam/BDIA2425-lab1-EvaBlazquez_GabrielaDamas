@@ -36,6 +36,7 @@ python3 src/main.py --seed 1 --n_users 1000
 Parámetros principales:
 - `--seed`: semilla para que la generación sea reproducible
 - `--n_users`: número de usuarios (los vehículos se asignan probabilísticamente)
+ - `--out-dir`: directorio de salida (por defecto `output/`). Útil para separar ejecuciones (p. ej., `--out-dir output_1k`, `--out-dir output_10k`).
 
 ### Carga en PostgreSQL (opcional)
 

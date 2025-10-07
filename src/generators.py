@@ -5,7 +5,6 @@ import random
 import unicodedata
 import os
 from io_utils import load_postal_and_phone, load_models_by_make
-import csv
 
 
 MANUFACTURERS = [
@@ -31,7 +30,8 @@ _CP_TO_MUNICIPALITIES, _PROV_TO_TLF, _PROV_CODE_TO_NAME = load_postal_and_phone(
 _MODELS_BY_MAKE = load_models_by_make(_MODELS_FILE)
 
 
-def build_generators(seed=None, locale='es_ES'):
+def build_generators(seed = None, locale = 'es_ES'):
+    """Inicializa Faker con seed y añade proveedores (DNI, matrícula, VIN)."""
     fake = Faker(locale)
     if seed is not None:
         Faker.seed(seed)
@@ -42,6 +42,7 @@ def build_generators(seed=None, locale='es_ES'):
     return fake
 
 def generate_users(fake, n):
+    """Genera n usuarios coherentes (CP→municipio→provincia, teléfonos, email único)."""
     users = []
     landline_prob = 0.539  # Probabilidad de que la persona tenga teléfono fijo
     emails_generados = set()
@@ -107,7 +108,8 @@ def generate_users(fake, n):
         })
     return users
 
-def generate_vehicles(fake, users, show_progress: bool = False):
+def generate_vehicles(fake, users, show_progress = False):
+    """Genera vehículos 0..3 por usuario con año ponderado, placa/VIN únicos y modelo coherente."""
     vehicles = []
     used_plates = set()
     used_vins = set()
@@ -120,6 +122,7 @@ def generate_vehicles(fake, users, show_progress: bool = False):
         for _ in range(n_cars):
             # Año con distribución más realista (más peso en años recientes)
             years = list(range(2000, 2026))
+            # weights debe tener la misma longitud que years
             weights = [1]*5 + [3]*5 + [6]*11 + [4]*3 + [2]*2
             year = random.choices(years, weights=weights, k=1)[0]
             plate = fake.plate(year)
