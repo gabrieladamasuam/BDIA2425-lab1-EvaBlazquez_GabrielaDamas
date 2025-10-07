@@ -16,7 +16,6 @@ class DNIProvider(BaseProvider):
         return f"{n:08d}-{self.dni_control_letter(n)}"
 
 
-
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_SCRIPT_DIR)
 _SERIES_FILE = os.path.join(_REPO_ROOT, 'data', 'series_matriculas.csv')
@@ -36,7 +35,6 @@ class PlateProvider(BaseProvider):
         letters = random.choice(series)
         nums = random.randint(0, 9999)
         return f"{nums:04d}{letters}"
-
 
 
 class VINProvider(BaseProvider):

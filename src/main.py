@@ -1,3 +1,10 @@
+"""Punto de entrada del proyecto.
+
+Genera datos sintéticos (usuarios y vehículos) y los escribe en CSV, Parquet, JSON y Avro; 
+además carga los datos en SQLite, PostgreSQL y MongoDB. El directorio de salida es configurable 
+con --out-dir. Para PostgreSQL se puede crear la BD si no existe, crear tablas y, opcionalmente, 
+vaciar tablas con --pg-reset antes de insertar para evitar acumulación entre ejecuciones.
+"""
 import os
 import argparse
 from generators import build_generators, generate_users, generate_vehicles

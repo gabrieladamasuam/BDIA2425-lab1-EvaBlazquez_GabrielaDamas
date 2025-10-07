@@ -75,7 +75,7 @@ def get_connection(db_config):
 
 def ensure_database_exists(db_config, admin_db = "postgres"):
     """Crea la base de datos si no existe conectando a admin_db (requiere permisos)."""
-    # Conectar a la BD administrativa con las mismas credenciales
+    # Conectar a la BD con las mismas credenciales
     conn = psycopg2.connect(
         dbname=admin_db,
         user=db_config['user'],
@@ -145,7 +145,7 @@ def insert_into_postgres(users, vehicles, db_config, show_progress = True):
     """Inserta users y vehicles en PostgreSQL con ON CONFLICT DO NOTHING y progreso."""
     conn = get_connection(db_config)
     cur = conn.cursor()
-    # ON CONFLICT DO NOTHING: evita duplicados; para reset usa --pg-reset; para upsert cambia a DO UPDATE.
+    # ON CONFLICT DO NOTHING: evita duplicados; para reset usa --pg-reset
     # Insertar usuarios
     user_iter = tqdm(users, desc="Escribiendo PostgreSQL usuarios", unit="fila") if show_progress else users
     for u in user_iter:

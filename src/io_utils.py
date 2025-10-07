@@ -1,7 +1,6 @@
 import os
 import csv
 import json
-from typing import Dict, List, Tuple
 from tqdm import tqdm
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -9,7 +8,7 @@ from fastavro import writer as avro_writer, parse_schema
 
 # ===================== Loaders (entrada de datos) =====================
 
-def load_plate_series(csv_series: str) -> Dict[int, List[str]]:
+def load_plate_series(csv_series):
     """Lee series de matrículas por año desde CSV (columnas: year, series)."""
     series_by_year = {}
     with open(csv_series, 'r', encoding='utf-8') as f:
@@ -21,7 +20,7 @@ def load_plate_series(csv_series: str) -> Dict[int, List[str]]:
     return series_by_year
 
 
-def load_postal_and_phone(csv_cp: str, csv_tlf: str) -> Tuple[Dict[str, List[str]], Dict[str, str], Dict[str, str]]:
+def load_postal_and_phone(csv_cp, csv_tlf):
     """Lee CP→municipios, prefijos provinciales y nombre de provincia desde CSV."""
     cp_to_municipalities = {}
     prov_to_tlf = {}
@@ -46,7 +45,7 @@ def load_postal_and_phone(csv_cp: str, csv_tlf: str) -> Tuple[Dict[str, List[str
     return cp_to_municipalities, prov_to_tlf, prov_code_to_name
 
 
-def load_models_by_make(path: str):
+def load_models_by_make(path):
     """Lee catálogo marca→[ {model, category} ] desde CSV; devuelve dict."""
     mapping = {}
     if not os.path.exists(path):
@@ -63,7 +62,7 @@ def load_models_by_make(path: str):
 
 # ===================== Writers (salida de datos) =====================
 
-def write_csv(data: List[dict], filepath: str, show_progress: bool = True) -> None:
+def write_csv(data, filepath, show_progress = True):
     """Escribe una lista de dicts a CSV con cabecera y barra de progreso."""
     if not data:
         return
@@ -76,7 +75,7 @@ def write_csv(data: List[dict], filepath: str, show_progress: bool = True) -> No
             w.writerow(row)
 
 
-def write_parquet(data: List[dict], filepath: str, show_progress: bool = True, chunk_size: int = 50000) -> None:
+def write_parquet(data, filepath, show_progress=True, chunk_size=50000):
     """Escribe Parquet (PyArrow, Snappy); en chunks si supera chunk_size."""
     if not data:
         return
@@ -117,12 +116,12 @@ def write_parquet(data: List[dict], filepath: str, show_progress: bool = True, c
             writer.close()
 
 
-def write_json_nested(users: List[dict], vehicles: List[dict], filepath: str, show_progress: bool = True) -> None:
+def write_json_nested(users, vehicles, filepath, show_progress = True):
     """Escribe JSON anidado (usuarios con array de Vehicles) en streaming con indentación.
     Mantiene barra de progreso sin sacrificar legibilidad del JSON.
     """
     # Agrupar vehículos por DNI del propietario
-    veh_by_dni: Dict[str, List[dict]] = {}
+    veh_by_dni = {}
     for v in vehicles:
         key = v.get('UserDNI')
         if key is not None:
@@ -146,13 +145,13 @@ def write_json_nested(users: List[dict], vehicles: List[dict], filepath: str, sh
         f.write(']\n')
 
 
-def write_json_separated(users: List[dict], vehicles: List[dict], users_path: str, vehicles_path: str, show_progress: bool = True) -> None:
+def write_json_separated(users, vehicles, users_path, vehicles_path, show_progress = True):
     """Escribe users.json y vehicles.json en streaming con indentación y progreso."""
     os.makedirs(os.path.dirname(users_path), exist_ok=True)
     os.makedirs(os.path.dirname(vehicles_path), exist_ok=True)
     if show_progress:
         # Escritura en streaming con indentación y barra de progreso
-        def stream_json_array(path: str, items: List[dict], item_desc: str):
+        def stream_json_array(path, items, item_desc):
             with open(path, 'w', encoding='utf-8') as f:
                 f.write('[\n')
                 it = tqdm(items, desc=f"Escribiendo {item_desc}", unit="elem")
@@ -174,17 +173,17 @@ def write_json_separated(users: List[dict], vehicles: List[dict], users_path: st
             json.dump(vehicles, f, ensure_ascii=False, indent=2)
 
 
-def write_avro_nested(users: List[dict], vehicles: List[dict], filepath: str, show_progress: bool = True) -> None:
+def write_avro_nested(users, vehicles, filepath, show_progress = True) -> None:
     """Escribe AVRO anidado (usuarios con Vehicles) usando fastavro y esquema explícito."""
     if avro_writer is None or parse_schema is None:
         print(f"fastavro no está instalado. Omitiendo AVRO: {filepath}")
         return
-    vehicles_norm: List[dict] = []
+    vehicles_norm = []
     for v in vehicles:
         vd = dict(v)
         vehicles_norm.append(vd)
 
-    veh_by_dni: Dict[str, List[dict]] = {}
+    veh_by_dni = {}
     for v in vehicles_norm:
         veh_by_dni.setdefault(v['UserDNI'], []).append(v)
 
@@ -234,7 +233,7 @@ def write_avro_nested(users: List[dict], vehicles: List[dict], filepath: str, sh
         avro_writer(out, parse_schema(schema), users_nested)
 
 
-def write_avro_separated(users: List[dict], vehicles: List[dict], users_path: str, vehicles_path: str, show_progress: bool = True) -> None:
+def write_avro_separated(users, vehicles, users_path, vehicles_path, show_progress = True) -> None:
     """Escribe AVRO separado (users/vehicles) con esquemas explícitos y progreso."""
     if avro_writer is None or parse_schema is None:
         print(f"fastavro no está instalado. Omitiendo AVRO: {users_path}, {vehicles_path}")
@@ -274,7 +273,7 @@ def write_avro_separated(users: List[dict], vehicles: List[dict], users_path: st
     with open(users_path, 'wb') as out:
         avro_writer(out, parse_schema(user_schema), users)
 
-    vehicles_norm: List[dict] = []
+    vehicles_norm = []
     iterator = tqdm(vehicles, desc="Escribiendo AVRO vehículos", unit="veh") if show_progress else vehicles
     for v in iterator:
         vd = dict(v)
